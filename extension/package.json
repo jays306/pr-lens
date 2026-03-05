@@ -1,0 +1,17 @@
+{
+  "name": "just-pr-extension",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "bun run build.ts",
+    "dev": "NODE_ENV=development bun --watch build.ts"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.268",
+    "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "highlight.js": "^11.11.1",
+    "marked": "^17.0.4"
+  }
+}

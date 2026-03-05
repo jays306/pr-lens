@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "JUST-PR",
+  "version": "0.1.0",
+  "description": "AI-native PR review overlay. System-level reasoning for every pull request.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": [
+    "https://github.com/*",
+    "https://gitlab.com/*",
+    "https://bitbucket.org/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://github.com/*/pull/*",
+        "https://gitlab.com/*/merge_requests/*",
+        "https://bitbucket.org/*/pull-requests/*"
+      ],
+      "js": ["dist/content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "JUST-PR",
+    "default_popup": "public/popup.html"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["dist/*", "public/*"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

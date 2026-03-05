@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JUST-PR</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Syne:wght@700;800&display=swap" rel="stylesheet" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 280px;
+      background: #ffffff;
+      color: #1c2128;
+      font-family: 'JetBrains Mono', monospace;
+      border: 1px solid #d0d7de;
+    }
+
+    .header {
+      padding: 16px;
+      border-bottom: 1px solid #d0d7de;
+      background: #f6f8fa;
+      position: relative;
+    }
+
+    .header::after {
+      content: '';
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(to right, #b45309, transparent);
+      opacity: 0.4;
+    }
+
+    .logo {
+      font-family: 'Syne', sans-serif;
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: 0.15em;
+      color: #b45309;
+    }
+
+    .tagline {
+      font-size: 9px;
+      letter-spacing: 0.2em;
+      color: #8c959f;
+      text-transform: uppercase;
+      margin-top: 4px;
+    }
+
+    .body {
+      padding: 16px;
+    }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 10px;
+      color: #424a53;
+      padding: 10px 0;
+      border-bottom: 1px solid #d0d7de;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #16a34a;
+      box-shadow: 0 0 6px #16a34a;
+    }
+
+    .status-dot.offline {
+      background: #8c959f;
+      box-shadow: none;
+    }
+
+    .info {
+      margin-top: 14px;
+      font-size: 10px;
+      color: #8c959f;
+      line-height: 1.7;
+    }
+
+    .info strong {
+      color: #424a53;
+    }
+
+    .kbd {
+      display: inline-block;
+      background: #eef1f5;
+      border: 1px solid #d0d7de;
+      padding: 1px 5px;
+      font-size: 9px;
+      color: #b45309;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">JUST·PR</div>
+    <div class="tagline">AI-Native PR Review System</div>
+  </div>
+  <div class="body">
+    <div class="status-row">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">Checking backend...</span>
+    </div>
+    <div class="info">
+      Navigate to any <strong>Pull Request</strong> page on GitHub, GitLab, or Bitbucket.<br /><br />
+      The overlay will appear automatically. Click <span class="kbd">JUST·PR</span> on the right edge to open it.
+    </div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

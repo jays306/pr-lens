@@ -1,170 +1,157 @@
-# JUST-PR
+# PR Lens
 
-## The AI-Native PR Review System
+**AI-native PR review overlay — system-level reasoning for every pull request.**
 
-------------------------------------------------------------------------
+PR Lens is a Chrome extension + Go backend that injects a structured AI analysis panel directly onto GitHub, GitLab, and Bitbucket pull request pages. No tab switching. No copy-pasting links. The native PR interface stays fully functional underneath.
+
+---
 
 ## The Problem
 
-Pull requests were designed for a world where humans wrote code at human
-speed.
+Pull requests were designed for a world where humans wrote code at human speed.
 
-Today, AI generates: - Larger PRs
-- Faster iteration cycles
-- Cross-cutting refactors
-- Multi-layer system changes
+Today, AI generates larger PRs, faster iteration cycles, and cross-cutting refactors. We didn't remove the bottleneck — we moved it. PR review is now the constraint.
 
-We didn't remove the bottleneck.
-We moved it.
+PR Lens bridges AI velocity with human reasoning.
 
-From writing code → to reviewing code.
-
-PR review is now the constraint.
-
-------------------------------------------------------------------------
-
-## The Shift
-
-Traditional PR Review: - Vertical diff scrolling - File-by-file
-inspection - High cognitive load - Context switching fatigue
-
-AI-era PR Review needs: - System-level reasoning - Risk-based
-prioritization - Structured navigation - Faster signal extraction
-
-JUST-PR rethinks review from the ground up.
-
-------------------------------------------------------------------------
-
-## Core Idea: Horizontal Review
-
-Instead of reviewing vertically by file, JUST-PR organizes PRs
-horizontally by system concern:
-
--   🔌 API
--   🗄 Database
--   🧬 Migrations
--   🔐 Security
--   📦 Dependencies
--   🧪 Tests
--   ⚙️ Config / Infrastructure
--   ⚡ Performance
--   🧱 Refactor / Internal Changes
--   📝 Docs / Other
-
-Review becomes structured and intentional.
-
-------------------------------------------------------------------------
+---
 
 ## How It Works
 
-### 1. AI Intelligence Layer
+1. **Detection** — The extension detects when you're on a PR page and activates automatically.
+2. **Overlay** — An analysis panel appears alongside the native PR interface.
+3. **Analysis** — The UI sends the PR URL to the backend, which fetches the diff and runs AI analysis.
+4. **Streaming results** — Structured review streams back in real time: summary, risk score, and categorized sections.
 
-When a PR opens, JUST-PR generates:
+The raw diff remains fully visible. PR Lens augments it — it does not replace it.
 
--   High-level summary
--   Risk score
--   Criticality classification
--   Affected system map
--   Cross-cutting change detection
--   Suggested review order
+---
 
-Before reading code, reviewers understand impact.
+## Horizontal Review
 
-------------------------------------------------------------------------
+Instead of scrolling through diffs file-by-file, PR Lens organizes changes by system concern:
 
-### 2. Interactive Diff --- Not a Replacement
+| Category | Scope |
+|---|---|
+| 🔌 API | Interface & contract changes |
+| 🗄 Database | Schema, queries, indexes |
+| 🧬 Migrations | Data migrations |
+| 🔐 Security | Auth, input validation, secrets |
+| 📦 Dependencies | Package additions/updates |
+| 🧪 Tests | Test coverage changes |
+| ⚙️ Config / Infrastructure | Env, CI, deployment |
+| ⚡ Performance | Hot paths, N+1s, caching |
+| 🧱 Refactor | Internal restructuring |
+| 📝 Docs / Other | Documentation, comments |
 
-Raw diffs remain fully visible and accessible.
+---
 
-JUST-PR enhances them by:
+## Project Structure
 
--   Semantically grouping diff hunks by concern
--   Highlighting risk areas
--   Extracting relevant snippets per section
--   Allowing instant jump-to-file navigation
--   Collapsible AI annotations
--   Filtered diff views by category
+```
+pr-lens/
+├── backend/          # Go HTTP server
+│   ├── ai/           # AI provider abstraction (Claude, OpenAI-compatible)
+│   ├── github/       # GitHub API client
+│   ├── handlers/     # HTTP route handlers
+│   └── main.go
+├── extension/        # Chrome extension (TypeScript + Bun)
+│   ├── src/          # Content script, overlay, types
+│   ├── public/       # Popup HTML/JS
+│   └── manifest.json
+└── Makefile
+```
 
-This preserves trust while improving clarity.
+---
 
-------------------------------------------------------------------------
+## Getting Started
 
-### 3. Structured Review Flow
+### Prerequisites
 
-Reviewers can:
+- [Go 1.21+](https://go.dev/dl/)
+- [Bun](https://bun.sh/)
+- A GitHub personal access token (repo read scope)
+- An Anthropic or OpenAI API key
 
--   Navigate section-by-section
--   Comment per concern
--   Flag risk areas
--   Jump directly into full raw diff context
+### Setup
 
-Each section includes: - AI-generated summary - Highlighted code
-segments - Risk indicators - Suggested review questions
+```bash
+# Install all dependencies
+make setup
 
-No forced wizard flow.
-Just structured control.
+# Configure the backend
+cp backend/.env.example backend/.env
+# Edit backend/.env — fill in GITHUB_TOKEN and ANTHROPIC_API_KEY
+```
 
-------------------------------------------------------------------------
+### Run
 
-### 4. Decision Aggregation
+```bash
+make dev
+```
 
-At the end of the review:
+This builds the extension and starts the backend on `http://localhost:8080`.
 
--   All flags are summarized
--   Unresolved comments surfaced
--   Risk score updated
--   Suggested final action presented (Approve / Request Changes)
+Then load the extension in Chrome:
+1. Go to `chrome://extensions`
+2. Enable **Developer mode**
+3. Click **Load unpacked** → select the `extension/` directory
 
-Human judgment remains final.
+---
 
-------------------------------------------------------------------------
+## Configuration
 
-## Product Form
+All backend config is via environment variables (or `backend/.env`):
 
-JUST-PR ships first as a **Chrome extension**.
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `GITHUB_TOKEN` | Yes | — | GitHub PAT with repo read access |
+| `ANTHROPIC_API_KEY` | If using Claude | — | Anthropic API key |
+| `OPENAI_API_KEY` | If using OpenAI | — | OpenAI API key |
+| `AI_PROVIDER` | No | `claude` | `claude` or `openai` |
+| `ANTHROPIC_MODEL` | No | `claude-sonnet-4-6` | Model override |
+| `ANTHROPIC_BASE_URL` | No | — | Override for proxies (e.g. LiteLLM) |
+| `PORT` | No | `8080` | Server port |
+| `CORS_ORIGINS` | No | `*` | Allowed origins (comma-separated) |
 
-### Chrome Extension
+---
 
-When you navigate to any Pull Request page (GitHub, GitLab, Bitbucket), the extension detects the PR URL and injects an overlay panel directly on top of the existing page. No tab switching. No copy-pasting links.
+## API
 
-**How it works:**
+### `POST /analyze`
 
-1. **Detection** — The extension detects you are on a PR page and activates automatically.
-2. **Overlay** — A side panel or modal overlays the current PR page without navigating away from it.
-3. **Analysis request** — The UI sends the PR URL to the JUST-PR backend.
-4. **Streaming results** — The backend fetches the diff, runs AI analysis, and streams the structured review back to the extension in real time (summary, risk score, categorized sections).
-5. **Inline experience** — Results appear alongside the native PR interface, so you can cross-reference the AI analysis and the raw diff simultaneously.
+Analyze a pull request URL.
 
-The native PR page remains fully functional underneath the overlay. JUST-PR augments it — it does not replace it.
+**Request:**
+```json
+{ "url": "https://github.com/owner/repo/pull/123" }
+```
 
-**Future form factors:**
+**Response:** Server-Sent Events stream of structured analysis events.
 
--   GitHub App (server-side, webhook-triggered)
--   Native GitHub integration (long term)
+### `GET /health`
 
-------------------------------------------------------------------------
+Returns `200 OK` when the server is running.
 
-## Why This Matters
+---
 
-AI-generated PRs will continue to grow in size and complexity.
+## Supported Platforms
 
-Humans are not optimized to review: - 5,000+ line diffs - Cross-layer
-refactors - Auto-generated migrations - Automated dependency updates
+- GitHub (`github.com/*/pull/*`)
+- GitLab (`gitlab.com/*/merge_requests/*`)
+- Bitbucket (`bitbucket.org/*/pull-requests/*`)
 
-Humans are optimized to review: - Intent - Architecture - Security
-implications - Data integrity - Performance risks
+---
 
-JUST-PR bridges AI velocity with human reasoning.
+## Make Targets
 
-------------------------------------------------------------------------
-
-## Vision
-
-In the agentic development era:
-
--   AI writes the code
--   AI pre-analyzes the code
--   Humans validate safety, architecture, and intent
-
-JUST-PR becomes the coordination layer between AI execution speed and
-human oversight.
+```
+make setup           Install all dependencies
+make dev             Build extension + run backend
+make backend-run     Run the Go backend
+make backend-build   Build the Go binary
+make backend-test    Run backend tests
+make extension-build Build the Chrome extension
+make extension-dev   Watch mode for extension development
+make clean           Remove build artifacts
+```

@@ -78,8 +78,9 @@ func (p *PipelineProvider) AnalyzePRFull(
 		}(catID, files)
 	}
 
-	// Stream results as workers complete
+	// Stream results as workers complete; deduplicate categories by ID.
 	var categoryEvents []StreamEvent
+	emittedCategories := make(map[string]bool)
 	for range numWorkers {
 		r := <-resultsCh
 		if r.err != nil {
@@ -92,6 +93,13 @@ func (p *PipelineProvider) AnalyzePRFull(
 					return err
 				}
 			case "category":
+				id, _ := ev.Data["id"].(string)
+				if id != "" && emittedCategories[id] {
+					continue // drop duplicate category
+				}
+				if id != "" {
+					emittedCategories[id] = true
+				}
 				categoryEvents = append(categoryEvents, ev)
 				if err := emit(ev); err != nil {
 					return err

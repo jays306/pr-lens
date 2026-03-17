@@ -20,6 +20,9 @@ func TestBuildTriagePrompt(t *testing.T) {
 			t.Errorf("expected %q in triage prompt", f)
 		}
 	}
+	if !strings.Contains(prompt, "modified") {
+		t.Error("expected status 'modified' in triage prompt")
+	}
 }
 
 func TestParseTriageResponse(t *testing.T) {
@@ -31,7 +34,7 @@ func TestParseTriageResponse(t *testing.T) {
 	if len(result["security"]) != 1 || result["security"][0] != "auth/jwt.go" {
 		t.Errorf("unexpected security files: %v", result["security"])
 	}
-	if len(result["api"]) != 1 {
+	if len(result["api"]) != 1 || result["api"][0] != "handlers/user.go" {
 		t.Errorf("unexpected api files: %v", result["api"])
 	}
 }
@@ -51,5 +54,26 @@ func TestParseTriageResponse_MarkdownFenced(t *testing.T) {
 	}
 	if len(result["security"]) != 1 {
 		t.Errorf("expected security files, got %v", result)
+	}
+}
+
+func TestBuildTriagePrompt_Empty(t *testing.T) {
+	prompt := buildTriagePrompt(nil)
+	if !strings.Contains(prompt, "Classify") {
+		t.Error("expected prompt header even for empty file list")
+	}
+}
+
+func TestParseTriageResponse_UnknownCategory(t *testing.T) {
+	raw := `{"security":["auth/jwt.go"],"hallucinated_category":["foo.go"]}`
+	result, err := parseTriageResponse(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := result["hallucinated_category"]; ok {
+		t.Error("expected unknown category to be filtered out")
+	}
+	if len(result["security"]) != 1 {
+		t.Error("expected security category to be preserved")
 	}
 }

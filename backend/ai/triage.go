@@ -21,6 +21,10 @@ type TriageResult map[string][]string
 func Triage(ctx context.Context, apiKey string, files []ghclient.PRFile) (TriageResult, error) {
 	client := anthropic.NewClient(option.WithAPIKey(apiKey))
 
+	if len(files) == 0 {
+		return TriageResult{}, nil
+	}
+
 	prompt := buildTriagePrompt(files)
 
 	msg, err := client.Messages.New(ctx, anthropic.MessageNewParams{
@@ -63,7 +67,7 @@ func buildTriagePrompt(files []ghclient.PRFile) string {
 	var b strings.Builder
 	b.WriteString("Classify these changed files into categories:\n\n")
 	for _, f := range files {
-		b.WriteString(fmt.Sprintf("- %s (%s)\n", f.Filename, f.Status))
+		fmt.Fprintf(&b, "- %s (%s)\n", f.Filename, f.Status)
 	}
 	return b.String()
 }
@@ -85,6 +89,16 @@ func parseTriageResponse(raw string) (TriageResult, error) {
 	var result TriageResult
 	if err := json.Unmarshal([]byte(raw), &result); err != nil {
 		return nil, fmt.Errorf("triage: parse failed: %w", err)
+	}
+	validCategories := map[string]bool{
+		"security": true, "api": true, "database": true, "migrations": true,
+		"performance": true, "logic": true, "refactor": true, "tests": true,
+		"dependencies": true, "config": true, "docs": true,
+	}
+	for k := range result {
+		if !validCategories[k] {
+			delete(result, k)
+		}
 	}
 	return result, nil
 }

@@ -28,18 +28,17 @@ func FilterDiffByFiles(diff string, filenames []string) string {
 		currentFile = ""
 	}
 
-	for _, line := range strings.Split(diff, "\n") {
-		if strings.HasPrefix(line, "diff --git ") {
+	// SplitAfter keeps the newline attached to each line, avoiding extra blank lines
+	for _, line := range strings.SplitAfter(diff, "\n") {
+		trimmed := strings.TrimRight(line, "\n")
+		if strings.HasPrefix(trimmed, "diff --git ") {
 			flush()
-			// Extract filename: "diff --git a/path/to/file.go b/path/to/file.go"
-			parts := strings.Fields(line)
+			parts := strings.Fields(trimmed)
 			if len(parts) >= 4 {
-				// parts[3] is "b/path/to/file.go"
 				currentFile = strings.TrimPrefix(parts[3], "b/")
 			}
 		}
 		current.WriteString(line)
-		current.WriteByte('\n')
 	}
 	flush()
 

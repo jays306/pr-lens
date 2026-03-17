@@ -56,3 +56,15 @@ func TestFilterDiffByFiles_NoMatch(t *testing.T) {
 		t.Errorf("expected empty result, got %q", result)
 	}
 }
+
+func TestFilterDiffByFiles_ExactOutput(t *testing.T) {
+	// Each hunk in the diff ends with exactly one newline — output must match input exactly
+	jwt := "diff --git a/auth/jwt.go b/auth/jwt.go\nindex abc..def 100644\n--- a/auth/jwt.go\n+++ b/auth/jwt.go\n@@ -1 +1 @@\n+x\n"
+	other := "diff --git a/other.go b/other.go\nindex 111..222 100644\n--- a/other.go\n+++ b/other.go\n@@ -1 +1 @@\n+y\n"
+	diff := jwt + other
+
+	result := FilterDiffByFiles(diff, []string{"auth/jwt.go"})
+	if result != jwt {
+		t.Errorf("exact output mismatch:\ngot:  %q\nwant: %q", result, jwt)
+	}
+}

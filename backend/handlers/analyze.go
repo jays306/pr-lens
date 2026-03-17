@@ -42,6 +42,7 @@ func AnalyzeHandler(ghClient *ghclient.Client, provider ai.Provider) http.Handle
 		}
 		type filesResult struct {
 			contents []ghclient.FileContent
+			prFiles  []ghclient.PRFile
 		}
 
 		diffCh := make(chan diffResult, 1)
@@ -77,7 +78,7 @@ func AnalyzeHandler(ghClient *ghclient.Client, provider ai.Provider) http.Handle
 			}
 
 			contents := ghClient.FetchFileContents(r.Context(), ref, info.Base.SHA, toFetch)
-			filesCh <- filesResult{contents}
+			filesCh <- filesResult{prFiles: prFiles, contents: contents}
 		}()
 
 		dr := <-diffCh
@@ -112,16 +113,19 @@ func AnalyzeHandler(ghClient *ghclient.Client, provider ai.Provider) http.Handle
 			return nil
 		}
 
-		// Build the user prompt with file context
-		userPrompt := ai.UserPrompt(diff, fr.contents)
-
-		// Stream analysis
-		if err := provider.AnalyzePR(r.Context(), userPrompt, emit); err != nil {
-			log.Printf("[analyze] provider error: %v", err)
-			// Best effort: emit an error event
+		// Stream analysis — use FullAnalyzer interface if available (PipelineProvider)
+		var analyzeErr error
+		if full, ok := provider.(ai.FullAnalyzer); ok {
+			analyzeErr = full.AnalyzePRFull(r.Context(), diff, fr.prFiles, fr.contents, emit)
+		} else {
+			userPrompt := ai.UserPrompt(diff, fr.contents)
+			analyzeErr = provider.AnalyzePR(r.Context(), userPrompt, emit)
+		}
+		if analyzeErr != nil {
+			log.Printf("[analyze] provider error: %v", analyzeErr)
 			_ = emit(ai.StreamEvent{
 				Type: "error",
-				Data: map[string]any{"message": err.Error()},
+				Data: map[string]any{"message": analyzeErr.Error()},
 			})
 		}
 	}

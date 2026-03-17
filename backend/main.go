@@ -57,7 +57,12 @@ func buildProvider() ai.Provider {
 			return ai.NewOpenAICompatProvider(apiKey, baseURL, model)
 		}
 		apiKey := requireEnv("ANTHROPIC_API_KEY")
-		return ai.NewClaudeProvider(apiKey, "", model)
+		fallback := ai.NewClaudeProvider(apiKey, "", model)
+		return ai.NewPipelineProvider(ai.PipelineConfig{
+			APIKey:           apiKey,
+			SonnetModel:      model,
+			FallbackProvider: fallback,
+		})
 	case "openai":
 		apiKey := requireEnv("OPENAI_API_KEY")
 		return ai.NewOpenAICompatProvider(apiKey, baseURL, model)

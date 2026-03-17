@@ -133,10 +133,10 @@ func UserPrompt(diff string, fileContents []ghclient.FileContent) string {
 		const maxContextLen = 150_000
 		for _, fc := range fileContents {
 			if totalCtx+len(fc.Content) > maxContextLen {
-				b.WriteString(fmt.Sprintf("<!-- Remaining files omitted (context budget reached) -->\n"))
+				fmt.Fprintf(&b, "<!-- Remaining files omitted (context budget reached) -->\n")
 				break
 			}
-			b.WriteString(fmt.Sprintf("## %s\n```\n%s\n```\n\n", fc.Path, fc.Content))
+			fmt.Fprintf(&b, "## %s\n```\n%s\n```\n\n", fc.Path, fc.Content)
 			totalCtx += len(fc.Content)
 		}
 	}

@@ -1,14 +1,12 @@
-package ai
+package analysis
 
 import (
 	"strings"
 	"testing"
-
-	ghclient "github.com/just-pr/backend/github"
 )
 
 func TestBuildTriagePrompt(t *testing.T) {
-	files := []ghclient.PRFile{
+	files := []PRFile{
 		{Filename: "auth/jwt.go", Status: "modified"},
 		{Filename: "handlers/user.go", Status: "added"},
 		{Filename: "migrations/0042.sql", Status: "added"},

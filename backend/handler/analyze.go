@@ -1,21 +1,22 @@
-package handlers
+package handler
 
 import (
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
-	"github.com/just-pr/backend/ai"
-	ghclient "github.com/just-pr/backend/github"
+	"github.com/just-pr/backend/analysis"
+	"github.com/just-pr/backend/github"
 )
 
 type analyzeRequest struct {
 	URL string `json:"url"`
 }
 
-// AnalyzeHandler returns an http.HandlerFunc that streams PR analysis via SSE.
-func AnalyzeHandler(ghClient *ghclient.Client, provider ai.Provider) http.HandlerFunc {
+// Analyze returns an http.HandlerFunc that streams PR analysis via SSE.
+func Analyze(ghClient *github.Client, analyzer analysis.Analyzer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -24,60 +25,60 @@ func AnalyzeHandler(ghClient *ghclient.Client, provider ai.Provider) http.Handle
 
 		var req analyzeRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
-			http.Error(w, "invalid request body: expected {\"url\":\"...\"}", http.StatusBadRequest)
+			http.Error(w, `invalid request body: expected {"url":"..."}`, http.StatusBadRequest)
 			return
 		}
 
-		// Parse PR URL
-		ref, err := ghclient.ParsePRURL(req.URL)
+		ref, err := github.ParsePRURL(req.URL)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		// Fetch diff and file context in parallel
+		log.Printf("[analyze] start %s/%s #%d", ref.Owner, ref.Repo, ref.Number)
+		reqStart := time.Now()
+
 		type diffResult struct {
 			diff string
 			err  error
 		}
 		type filesResult struct {
-			contents []ghclient.FileContent
-			prFiles  []ghclient.PRFile
+			prFiles  []analysis.PRFile
+			contents []analysis.FileContent
 		}
 
 		diffCh := make(chan diffResult, 1)
 		filesCh := make(chan filesResult, 1)
 
 		go func() {
+			t := time.Now()
 			d, err := ghClient.FetchDiff(r.Context(), ref)
+			log.Printf("[analyze] FetchDiff done in %s", time.Since(t).Round(time.Millisecond))
 			diffCh <- diffResult{d, err}
 		}()
 
 		go func() {
-			// Fetch PR info to get base SHA, then fetch file contents
+			t := time.Now()
 			info, err := ghClient.FetchPRInfo(r.Context(), ref)
 			if err != nil {
 				log.Printf("[analyze] fetch PR info error (non-fatal): %v", err)
 				filesCh <- filesResult{}
 				return
 			}
-
 			prFiles, err := ghClient.FetchPRFiles(r.Context(), ref)
 			if err != nil {
 				log.Printf("[analyze] fetch PR files error (non-fatal): %v", err)
 				filesCh <- filesResult{}
 				return
 			}
-
-			// Only fetch base content for modified files (not added/removed)
 			var toFetch []string
 			for _, f := range prFiles {
 				if f.Status == "modified" || f.Status == "renamed" {
 					toFetch = append(toFetch, f.Filename)
 				}
 			}
-
 			contents := ghClient.FetchFileContents(r.Context(), ref, info.Base.SHA, toFetch)
+			log.Printf("[analyze] FetchPRInfo+Files+Contents done in %s (%d files, %d contents)", time.Since(t).Round(time.Millisecond), len(prFiles), len(contents))
 			filesCh <- filesResult{prFiles: prFiles, contents: contents}
 		}()
 
@@ -87,10 +88,9 @@ func AnalyzeHandler(ghClient *ghclient.Client, provider ai.Provider) http.Handle
 			http.Error(w, "failed to fetch PR diff: "+dr.err.Error(), http.StatusBadGateway)
 			return
 		}
-		diff := dr.diff
 		fr := <-filesCh
+		log.Printf("[analyze] github fetch phase done in %s", time.Since(reqStart).Round(time.Millisecond))
 
-		// Set up SSE headers
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
@@ -98,9 +98,8 @@ func AnalyzeHandler(ghClient *ghclient.Client, provider ai.Provider) http.Handle
 		w.WriteHeader(http.StatusOK)
 
 		flusher, canFlush := w.(http.Flusher)
-
-		emit := func(event ai.StreamEvent) error {
-			data, err := json.Marshal(event)
+		emit := func(ev analysis.StreamEvent) error {
+			data, err := json.Marshal(ev)
 			if err != nil {
 				return err
 			}
@@ -113,29 +112,25 @@ func AnalyzeHandler(ghClient *ghclient.Client, provider ai.Provider) http.Handle
 			return nil
 		}
 
-		// Stream analysis — use FullAnalyzer interface if available (PipelineProvider)
+		aiStart := time.Now()
 		var analyzeErr error
-		if full, ok := provider.(ai.FullAnalyzer); ok {
-			analyzeErr = full.AnalyzePRFull(r.Context(), diff, fr.prFiles, fr.contents, emit)
+		if full, ok := analyzer.(analysis.FullAnalyzer); ok {
+			analyzeErr = full.AnalyzePRFull(r.Context(), dr.diff, fr.prFiles, fr.contents, emit)
 		} else {
-			userPrompt := ai.UserPrompt(diff, fr.contents)
-			analyzeErr = provider.AnalyzePR(r.Context(), userPrompt, emit)
+			analyzeErr = analyzer.AnalyzePR(r.Context(), analysis.UserPrompt(dr.diff, fr.contents), emit)
 		}
 		if analyzeErr != nil {
-			log.Printf("[analyze] provider error: %v", analyzeErr)
-			_ = emit(ai.StreamEvent{
-				Type: "error",
-				Data: map[string]any{"message": analyzeErr.Error()},
-			})
+			log.Printf("[analyze] error: %v", analyzeErr)
+			_ = emit(analysis.StreamEvent{Type: "error", Data: map[string]any{"message": analyzeErr.Error()}})
 		}
+		log.Printf("[analyze] done total=%s ai=%s", time.Since(reqStart).Round(time.Millisecond), time.Since(aiStart).Round(time.Millisecond))
 	}
 }
 
-// HealthHandler returns a simple health check.
-func HealthHandler() http.HandlerFunc {
+// Health returns a simple health check handler.
+func Health() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	}
 }

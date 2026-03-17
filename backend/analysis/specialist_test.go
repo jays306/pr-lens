@@ -1,4 +1,4 @@
-package ai
+package analysis
 
 import (
 	"testing"
@@ -10,7 +10,6 @@ func TestCollectSpecialistEvents(t *testing.T) {
 		`{"type":"done","data":{}}`,
 		``,
 	}
-
 	events, err := collectSpecialistEvents(lines)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -50,7 +49,6 @@ func TestCollectSpecialistEvents_MalformedJSON(t *testing.T) {
 		`{"type":"category","data":{"id":"api","label":"API","riskLevel":"low","fileCount":0,"snippets":[],"reviewQuestions":[]}}`,
 	}
 	events, _ := collectSpecialistEvents(lines)
-	// malformed line is skipped, category is returned
 	if len(events) != 1 {
 		t.Errorf("expected 1 event (malformed line skipped), got %d", len(events))
 	}

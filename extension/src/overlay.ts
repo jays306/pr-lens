@@ -321,8 +321,9 @@ export class JustPROverlay {
     // Start review button
     const footer = document.createElement("div");
     footer.className = "jp-start-btn-wrap";
-    footer.innerHTML = `<button class="jp-start-btn">Start Review <span class="jp-start-btn-count">· ${s.categories.length} sections</span></button>`;
+    footer.innerHTML = `<button class="jp-start-btn"${s.categories.length === 0 ? " disabled" : ""}>Start Review <span class="jp-start-btn-count">· ${s.categories.length} sections</span></button>`;
     footer.querySelector(".jp-start-btn")!.addEventListener("click", () => {
+      if (s.categories.length === 0) return;
       this.currentStep = 1;
       this.renderScreen("step");
     });
@@ -747,6 +748,12 @@ export class JustPROverlay {
   async startAnalysis(): Promise<void> {
     if (this.isAnalyzing) return;
     this.isAnalyzing = true;
+    this.state = {
+      riskScore: 0, riskLevel: "low", riskLabel: "",
+      summary: "", affected: [], reviewOrder: [], categories: [],
+    };
+    this.currentStep = 0;
+    this.comments.clear();
     if (!this.isOpen) this.togglePanel(true);
     this.renderScreen("loading");
 
@@ -844,6 +851,15 @@ export class JustPROverlay {
             break;
           }
           case "done": {
+            const hasContent = this.state.summary || this.state.categories.length > 0;
+            if (!hasContent) {
+              this.screenEl.innerHTML = "";
+              const errEl = document.createElement("div");
+              errEl.className = "jp-error";
+              errEl.innerHTML = `<div class="jp-error-label">Error</div>Analysis returned no content. Please try again.`;
+              this.screenEl.appendChild(errEl);
+              break;
+            }
             this.updateLoadingProgress("done", "Complete");
             // Brief pause to show 100%, then switch to overview
             await new Promise(r => setTimeout(r, 400));

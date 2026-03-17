@@ -1,6 +1,6 @@
 //go:build integration
 
-package ai
+package analysis
 
 import (
 	"os"
@@ -13,12 +13,9 @@ func TestPipelineThresholdDetection(t *testing.T) {
 	if err != nil {
 		t.Skipf("no sample.diff fixture: %v", err)
 	}
-
 	diffStr := string(diff)
-	lineCount := strings.Count(diffStr, "\n")
-	t.Logf("fixture diff: %d lines", lineCount)
+	t.Logf("fixture diff: %d lines", strings.Count(diffStr, "\n"))
 
-	// Verify FilterDiffByFiles correctly filters by filename
 	result := FilterDiffByFiles(diffStr, []string{"auth/jwt.go", "migrations/0043_add_email_verified.sql"})
 	if !strings.Contains(result, "auth/jwt.go") {
 		t.Error("expected auth/jwt.go in filtered result")
@@ -36,9 +33,7 @@ func TestFixtureHasSufficientFiles(t *testing.T) {
 	if err != nil {
 		t.Skipf("no sample.diff fixture: %v", err)
 	}
-
-	diffStr := string(diff)
-	fileCount := strings.Count(diffStr, "diff --git ")
+	fileCount := strings.Count(string(diff), "diff --git ")
 	if fileCount < 10 {
 		t.Errorf("fixture should have at least 10 files for threshold testing, got %d", fileCount)
 	}

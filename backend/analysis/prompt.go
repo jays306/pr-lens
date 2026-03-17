@@ -1,10 +1,8 @@
-package ai
+package analysis
 
 import (
 	"fmt"
 	"strings"
-
-	ghclient "github.com/just-pr/backend/github"
 )
 
 // SystemPrompt returns the system instruction for PR analysis.
@@ -113,7 +111,7 @@ Available category IDs (only emit categories with actual changes):
 }
 
 // UserPrompt builds the user message for a PR diff with optional file context.
-func UserPrompt(diff string, fileContents []ghclient.FileContent) string {
+func UserPrompt(diff string, fileContents []FileContent) string {
 	const maxDiffLen = 200_000
 	if len(diff) > maxDiffLen {
 		diff = diff[:maxDiffLen] + "\n\n[diff truncated — showing first 200k characters]"
@@ -145,7 +143,6 @@ func UserPrompt(diff string, fileContents []ghclient.FileContent) string {
 }
 
 // SpecialistSystemPrompt returns a system prompt for a single-category specialist agent.
-// The specialist emits only "category" and "done" events.
 func SpecialistSystemPrompt(categoryID string) string {
 	return fmt.Sprintf(`You are JUST-PR, a senior staff engineer performing a focused code review.
 
@@ -173,7 +170,6 @@ Rules:
 }
 
 // SummarySystemPrompt returns a system prompt for the risk/summary/systems call.
-// This call receives a condensed view of the diff and produces risk, summary, and systems events.
 func SummarySystemPrompt() string {
 	return `You are JUST-PR, a senior staff engineer performing a high-level risk assessment of a pull request.
 

@@ -1,11 +1,8 @@
-package ai
+package analysis
 
-import (
-	"strings"
-)
+import "strings"
 
 // FilterDiffByFiles returns only the diff hunks for the given set of filenames.
-// A hunk starts with "diff --git a/<file> b/<file>" and ends at the next such line.
 func FilterDiffByFiles(diff string, filenames []string) string {
 	if diff == "" || len(filenames) == 0 {
 		return ""
@@ -28,7 +25,6 @@ func FilterDiffByFiles(diff string, filenames []string) string {
 		currentFile = ""
 	}
 
-	// SplitAfter keeps the newline attached to each line, avoiding extra blank lines
 	for _, line := range strings.SplitAfter(diff, "\n") {
 		trimmed := strings.TrimRight(line, "\n")
 		if strings.HasPrefix(trimmed, "diff --git ") {

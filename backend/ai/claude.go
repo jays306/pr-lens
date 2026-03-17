@@ -59,14 +59,13 @@ func (c *ClaudeProvider) AnalyzePR(ctx context.Context, userPrompt string, emit 
 		lineBuf.WriteString(text.Text)
 
 		for {
-			buf := lineBuf.String()
-			idx := strings.Index(buf, "\n")
-			if idx < 0 {
+			before, after, found := strings.Cut(lineBuf.String(), "\n")
+			if !found {
 				break
 			}
-			jsonLine := strings.TrimSpace(buf[:idx])
 			lineBuf.Reset()
-			lineBuf.WriteString(buf[idx+1:])
+			lineBuf.WriteString(after)
+			jsonLine := strings.TrimSpace(before)
 			if jsonLine == "" {
 				continue
 			}

@@ -51,14 +51,13 @@ func (p *OpenAICompatProvider) AnalyzePR(ctx context.Context, userPrompt string,
 		lineBuf.WriteString(chunk.Choices[0].Delta.Content)
 
 		for {
-			buf := lineBuf.String()
-			idx := strings.Index(buf, "\n")
-			if idx < 0 {
+			before, after, found := strings.Cut(lineBuf.String(), "\n")
+			if !found {
 				break
 			}
-			jsonLine := strings.TrimSpace(buf[:idx])
 			lineBuf.Reset()
-			lineBuf.WriteString(buf[idx+1:])
+			lineBuf.WriteString(after)
+			jsonLine := strings.TrimSpace(before)
 			if jsonLine == "" {
 				continue
 			}

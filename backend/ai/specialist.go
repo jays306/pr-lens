@@ -70,15 +70,13 @@ func RunSpecialist(ctx context.Context, apiKey, model, categoryID string, files 
 		}
 		lineBuf.WriteString(text.Text)
 		for {
-			buf := lineBuf.String()
-			idx := strings.Index(buf, "\n")
-			if idx < 0 {
+			before, after, found := strings.Cut(lineBuf.String(), "\n")
+			if !found {
 				break
 			}
-			line := strings.TrimSpace(buf[:idx])
 			lineBuf.Reset()
-			lineBuf.WriteString(buf[idx+1:])
-			if line != "" {
+			lineBuf.WriteString(after)
+			if line := strings.TrimSpace(before); line != "" {
 				jsonLines = append(jsonLines, line)
 			}
 		}

@@ -91,3 +91,63 @@ func (c *ClaudeProvider) AnalyzePR(ctx context.Context, userPrompt string, emit 
 
 	return nil
 }
+
+// runStreamingCall runs a one-shot streaming Anthropic call and collects events matching the keep filter.
+func runStreamingCall(ctx context.Context, apiKey, model, systemPrompt, userPrompt string, keep func(StreamEvent) bool) ([]StreamEvent, error) {
+	client := anthropic.NewClient(option.WithAPIKey(apiKey))
+
+	stream := client.Messages.NewStreaming(ctx, anthropic.MessageNewParams{
+		Model:     anthropic.Model(model),
+		MaxTokens: 4096,
+		System: []anthropic.TextBlockParam{
+			{Text: systemPrompt},
+		},
+		Messages: []anthropic.MessageParam{
+			anthropic.NewUserMessage(anthropic.NewTextBlock(userPrompt)),
+		},
+	})
+
+	var lineBuf strings.Builder
+	var events []StreamEvent
+
+	for stream.Next() {
+		event := stream.Current()
+		delta, ok := event.AsAny().(anthropic.ContentBlockDeltaEvent)
+		if !ok {
+			continue
+		}
+		text, ok := delta.Delta.AsAny().(anthropic.TextDelta)
+		if !ok {
+			continue
+		}
+		lineBuf.WriteString(text.Text)
+		for {
+			before, after, found := strings.Cut(lineBuf.String(), "\n")
+			if !found {
+				break
+			}
+			lineBuf.Reset()
+			lineBuf.WriteString(after)
+			line := strings.TrimSpace(before)
+			if line == "" {
+				continue
+			}
+			ev, err := parseStreamEvent(line)
+			if err != nil {
+				continue
+			}
+			if keep(ev) {
+				events = append(events, ev)
+			}
+		}
+	}
+	if err := stream.Err(); err != nil {
+		return nil, fmt.Errorf("streaming call: %w", err)
+	}
+	if rem := strings.TrimSpace(lineBuf.String()); rem != "" {
+		if ev, err := parseStreamEvent(rem); err == nil && keep(ev) {
+			events = append(events, ev)
+		}
+	}
+	return events, nil
+}

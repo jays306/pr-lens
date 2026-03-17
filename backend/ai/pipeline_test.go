@@ -41,7 +41,7 @@ func TestFirst2000Lines_Short(t *testing.T) {
 func TestFirst2000Lines_Long(t *testing.T) {
 	// Build a string with 2100 lines
 	var b strings.Builder
-	for i := 0; i < 2100; i++ {
+	for range 2100 {
 		b.WriteString("line\n")
 	}
 	result := first2000Lines(b.String())

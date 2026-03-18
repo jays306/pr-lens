@@ -1,4 +1,4 @@
-import type { SSEEvent, PRCategory, RiskLevel, CodeSnippet, ReviewQuestion } from "./types";
+import type { SSEEvent, PRCategory, RiskLevel, CodeSnippet } from "./types";
 import { overlayCSS } from "./__generated_css";
 import { marked } from "marked";
 import hljs from "highlight.js/lib/core";
@@ -61,6 +61,14 @@ interface AnalysisState {
 
 type Screen = "idle" | "loading" | "overview" | "step" | "decision";
 
+interface FileTreeNode {
+  name: string;
+  path: string;
+  isFile: boolean;
+  fullPath?: string;
+  children: Map<string, FileTreeNode>;
+}
+
 export class JustPROverlay {
   private host: HTMLElement;        // the shadow host in document.body
   private shadow: ShadowRoot;       // isolated shadow DOM
@@ -82,6 +90,16 @@ export class JustPROverlay {
 
   // Comments keyed by "catIdx:snippetIdx" or "catIdx:section"
   private comments: Map<string, string> = new Map();
+
+  // PR-level review decision (replaces per-file approve/deny)
+  private reviewDecision: "APPROVE" | "REQUEST_CHANGES" | "COMMENT" | null = null;
+
+  // Feedback action states keyed by "catIdx:questionIdx"
+  // discuss = post as inline comment; resolved/ignored = suppress
+  private feedbackActions: Map<string, "discuss" | "resolved" | "ignored"> = new Map();
+
+  // Track whether this session already submitted (keyed by PR URL in sessionStorage)
+  private get submittedKey() { return `just-pr:submitted:${this.prUrl}`; }
 
   constructor(prUrl: string) {
     this.prUrl = prUrl;
@@ -106,12 +124,6 @@ export class JustPROverlay {
   }
 
   private injectStyles(): void {
-    // Inject Google Fonts via <link> (works in shadow DOM; @import in <style> does not)
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = "https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,700;0,9..144,900;1,9..144,300&display=swap";
-    this.shadow.appendChild(link);
-
     const style = document.createElement("style");
     style.textContent = overlayCSS;
     this.shadow.appendChild(style);
@@ -361,6 +373,44 @@ export class JustPROverlay {
     const el = document.createElement("div");
     el.className = "jp-step";
 
+    // ── Top action bar (mockup-aligned) ───────────────────────────
+    const topBar = document.createElement("div");
+    topBar.className = "jp-step-topbar";
+    topBar.innerHTML = `
+      <div class="jp-step-topbar-left">
+        <div class="jp-step-topbar-title">Just-PR · AI Review</div>
+        <div class="jp-step-topbar-subtitle">${escapeHtml(cat.label)}</div>
+      </div>
+      <div class="jp-step-topbar-actions">
+        <button class="jp-step-topbar-btn jp-step-topbar-btn-prev">Previous</button>
+        <button class="jp-step-topbar-btn jp-step-topbar-btn-next">Next</button>
+        <button class="jp-step-topbar-btn jp-step-topbar-btn-primary">Finish Review</button>
+      </div>
+    `;
+    const prevTopBtn = topBar.querySelector<HTMLButtonElement>(".jp-step-topbar-btn-prev")!;
+    const nextTopBtn = topBar.querySelector<HTMLButtonElement>(".jp-step-topbar-btn-next")!;
+    const finishTopBtn = topBar.querySelector<HTMLButtonElement>(".jp-step-topbar-btn-primary")!;
+    prevTopBtn.addEventListener("click", () => {
+      if (catIdx === 0) {
+        this.currentStep = 0;
+        this.renderScreen("overview");
+      } else {
+        this.currentStep = catIdx;
+        this.renderScreen("step");
+      }
+    });
+    nextTopBtn.disabled = isLast;
+    nextTopBtn.addEventListener("click", () => {
+      if (isLast) return;
+      this.currentStep = catIdx + 2;
+      this.renderScreen("step");
+    });
+    finishTopBtn.addEventListener("click", () => {
+      this.currentStep = this.state.categories.length + 1;
+      this.renderScreen("decision");
+    });
+    el.appendChild(topBar);
+
     // ── Header bar ────────────────────────────────────────────────
     const header = document.createElement("div");
     header.className = "jp-step-header";
@@ -397,41 +447,128 @@ export class JustPROverlay {
       if (!byFile.has(s.file)) byFile.set(s.file, []);
       byFile.get(s.file)!.push({ snippetIdx: i, lineStart: s.lineStart });
     });
+    const fileTree = this.buildFileTree([...byFile.keys()]);
+    const treeRoot = document.createElement("div");
+    treeRoot.className = "jp-file-tree";
+    const snippetFeedbackBadges = new Map<number, HTMLElement>();
 
-    byFile.forEach((entries, file) => {
-      const fileName = file.split("/").pop() ?? file;
-      const fileGroup = document.createElement("div");
-      fileGroup.className = "jp-file-group";
-      fileGroup.innerHTML = `<div class="jp-file-group-name" title="${escapeHtml(file)}">${escapeHtml(fileName)}</div>`;
-
-      const rangeList = document.createElement("div");
-      rangeList.className = "jp-file-range-list";
-      entries.forEach(({ snippetIdx, lineStart }) => {
-        const s = cat.snippets[snippetIdx];
-        const btn = document.createElement("button");
-        btn.className = "jp-file-range-btn";
-        btn.dataset.snippetIdx = String(snippetIdx);
-        // Use explanation words as group label (first 4 words), line as range
-        const groupLabel = s.explanation?.split(" ").slice(0, 4).join(" ") || "Change";
-        const snippetRisk = s.riskLevel ?? cat.riskLevel;
-        btn.innerHTML = `
-          <div class="jp-file-range-group">${escapeHtml(groupLabel)}</div>
-          <div class="jp-file-range-footer">
-            <span class="jp-file-range-line">L${lineStart}</span>
-            <span class="jp-file-range-risk" data-level="${snippetRisk}"></span>
-          </div>
-        `;
-        rangeList.appendChild(btn);
+    const getPendingFeedbackCountForSnippet = (snippetIdx: number): number => {
+      const snippet = cat.snippets[snippetIdx];
+      if (!snippet) return 0;
+      const snippetQuestions = cat.reviewQuestions.filter(
+        q => q.file === snippet.file && (q.lineStart === undefined || q.lineStart === snippet.lineStart)
+      );
+      let pendingCount = 0;
+      snippetQuestions.forEach((q) => {
+        const qIdx = cat.reviewQuestions.indexOf(q);
+        const action = this.feedbackActions.get(`${catIdx}:${qIdx}`);
+        if (action !== "resolved" && action !== "ignored") pendingCount += 1;
       });
-      fileGroup.appendChild(rangeList);
-      leftCol.appendChild(fileGroup);
-    });
+      return pendingCount;
+    };
+
+    const updateSnippetFeedbackBadges = (): void => {
+      snippetFeedbackBadges.forEach((badge, snippetIdx) => {
+        const pendingCount = getPendingFeedbackCountForSnippet(snippetIdx);
+        if (pendingCount <= 0) {
+          badge.style.display = "none";
+          return;
+        }
+        const countEl = badge.querySelector<HTMLElement>(".jp-file-feedback-count");
+        if (countEl) countEl.textContent = String(pendingCount);
+        badge.style.display = "";
+      });
+    };
+
+    const renderTreeNode = (node: FileTreeNode, depth: number) => {
+      const children = [...node.children.values()].sort((a, b) => {
+        if (a.isFile !== b.isFile) return a.isFile ? 1 : -1;
+        return a.name.localeCompare(b.name);
+      });
+
+      children.forEach((child) => {
+        if (!child.isFile) {
+          const dirRow = document.createElement("div");
+          dirRow.className = "jp-tree-dir-row";
+          dirRow.style.paddingLeft = `${depth * 12}px`;
+          dirRow.innerHTML = `
+            <span class="jp-tree-dir-caret">▾</span>
+            <span class="jp-tree-dir-name">${escapeHtml(child.name)}</span>
+          `;
+          treeRoot.appendChild(dirRow);
+          renderTreeNode(child, depth + 1);
+          return;
+        }
+
+        const fullPath = child.fullPath ?? child.path;
+        const entries = byFile.get(fullPath) ?? [];
+
+        const fileGroup = document.createElement("div");
+        fileGroup.className = "jp-file-group jp-file-group--tree";
+
+        const fileName = document.createElement("div");
+        fileName.className = "jp-file-group-name";
+        fileName.title = fullPath;
+        fileName.textContent = child.name;
+        fileName.style.paddingLeft = `${depth * 12}px`;
+        fileGroup.appendChild(fileName);
+
+        const rangeList = document.createElement("div");
+        rangeList.className = "jp-file-range-list";
+        rangeList.style.marginLeft = `${depth * 12}px`;
+        entries.forEach(({ snippetIdx, lineStart }) => {
+          const s = cat.snippets[snippetIdx];
+          const btn = document.createElement("button");
+          btn.className = "jp-file-range-btn";
+          btn.dataset.snippetIdx = String(snippetIdx);
+          const groupLabel = s.explanation?.split(" ").slice(0, 4).join(" ") || "Change";
+          const snippetRisk = s.riskLevel ?? cat.riskLevel;
+          btn.dataset.level = snippetRisk;
+          btn.innerHTML = `
+            <div class="jp-file-range-group">${escapeHtml(groupLabel)}</div>
+            <div class="jp-file-range-footer">
+              <span class="jp-file-range-line">L${lineStart}</span>
+              <span class="jp-file-range-footer-right">
+                <span class="jp-file-feedback-badge" style="display:none">
+                  <span class="jp-file-feedback-icon">💬</span>
+                  <span class="jp-file-feedback-count">0</span>
+                </span>
+              </span>
+            </div>
+          `;
+          const badgeEl = btn.querySelector<HTMLElement>(".jp-file-feedback-badge");
+          if (badgeEl) snippetFeedbackBadges.set(snippetIdx, badgeEl);
+          rangeList.appendChild(btn);
+        });
+
+        fileGroup.appendChild(rangeList);
+        treeRoot.appendChild(fileGroup);
+      });
+    };
+
+    renderTreeNode(fileTree, 0);
+    updateSnippetFeedbackBadges();
+    leftCol.appendChild(treeRoot);
 
     cols.appendChild(leftCol);
 
     // ── CENTER: single focused diff + feedback below ──────────────
     const centerCol = document.createElement("div");
     centerCol.className = "jp-step-col-diffs";
+    const feedbackContainer = document.createElement("div");
+    feedbackContainer.className = "jp-feedback-container";
+
+    // Focused review context card
+    const contextCard = document.createElement("div");
+    contextCard.className = "jp-step-context-card";
+    contextCard.innerHTML = `
+      <div class="jp-step-context-meta">
+        <div class="jp-step-context-title">Focused review</div>
+        <div class="jp-step-context-copy">Review one grouped change at a time. Code stays central, comments stay attached below it.</div>
+      </div>
+      <div class="jp-step-context-impact" data-level="${cat.riskLevel}">${cat.riskLevel} impact</div>
+    `;
+    centerCol.appendChild(contextCard);
 
     // Active diff container — swapped when left nav is clicked
     const diffFocus = document.createElement("div");
@@ -455,6 +592,7 @@ export class JustPROverlay {
         </div>
         <span class="jp-step-risk-pill" data-level="${s.riskLevel ?? cat.riskLevel}">${s.riskLevel ?? cat.riskLevel}</span>
       `;
+
       diffFocus.appendChild(cardHeader);
 
       // Explanation (once, in full)
@@ -509,36 +647,115 @@ export class JustPROverlay {
       const snippetQuestions = cat.reviewQuestions.filter(
         q => q.file === s.file && (q.lineStart === undefined || q.lineStart === s.lineStart)
       );
+      updateSnippetFeedbackBadges();
       if (snippetQuestions.length > 0) {
         const feedbackCard = document.createElement("div");
         feedbackCard.className = "jp-feedback-card";
 
-        const criticalCount = (cat.riskLevel === "high" || cat.riskLevel === "critical") ? 1 : 0;
+        const criticalCount = (cat.riskLevel === "high" || cat.riskLevel === "critical")
+          ? Math.min(1, snippetQuestions.length)
+          : 0;
         const feedbackHeader = document.createElement("div");
         feedbackHeader.className = "jp-feedback-header";
         feedbackHeader.innerHTML = `
           <div class="jp-feedback-title">Feedback</div>
-          <div class="jp-feedback-meta">${snippetQuestions.length} question${snippetQuestions.length !== 1 ? "s" : ""} for this file</div>
+          <div class="jp-feedback-meta">${snippetQuestions.length} total · ${criticalCount} critical</div>
         `;
         feedbackCard.appendChild(feedbackHeader);
 
         const list = document.createElement("div");
         list.className = "jp-feedback-list";
-        snippetQuestions.forEach((q, i) => {
-          const isCritical = i === 0 && criticalCount > 0;
+        snippetQuestions.forEach((q, qi) => {
+          const isCritical = qi === 0 && criticalCount > 0;
+          const kind = isCritical ? "Action required" : (q.text.trim().endsWith("?") ? "Question" : "Nit");
+          // Find the real question index in cat.reviewQuestions
+          const qIdx = cat.reviewQuestions.indexOf(q);
+          const actionKey = `${catIdx}:${qIdx}`;
+
           const qCard = document.createElement("div");
           qCard.className = "jp-finding-card" + (isCritical ? " jp-finding-card--critical" : "");
-          qCard.innerHTML = `
-            <div class="jp-finding-row">
-              <p class="jp-finding-text">${escapeHtml(q.text)}</p>
-              ${isCritical ? `<span class="jp-finding-action-label">Action</span>` : ""}
-            </div>
-            <div class="jp-finding-btns">
-              <button class="jp-finding-btn">Discuss</button>
-              <button class="jp-finding-btn">Resolve</button>
-              <button class="jp-finding-btn">Ignore</button>
-            </div>
-          `;
+          qCard.dataset.kind = kind.toLowerCase().replace(/\s+/g, "-");
+
+          const row = document.createElement("div");
+          row.className = "jp-finding-row";
+          const heading = document.createElement("div");
+          heading.className = "jp-finding-heading";
+          const kindEl = document.createElement("span");
+          kindEl.className = "jp-finding-kind" + (isCritical ? " jp-finding-kind--action" : "");
+          kindEl.textContent = kind;
+          heading.appendChild(kindEl);
+          if (isCritical) {
+            const blocking = document.createElement("span");
+            blocking.className = "jp-finding-badge-blocking";
+            blocking.textContent = "Blocking";
+            heading.appendChild(blocking);
+          }
+
+          const textEl = document.createElement("p");
+          textEl.className = "jp-finding-text";
+          textEl.textContent = q.text;
+          row.appendChild(heading);
+          row.appendChild(textEl);
+          qCard.appendChild(row);
+
+          const btnsRow = document.createElement("div");
+          btnsRow.className = "jp-finding-btns";
+
+          const discussBtn = document.createElement("button");
+          discussBtn.className = "jp-finding-btn";
+          discussBtn.textContent = "Discuss";
+          const resolveBtn = document.createElement("button");
+          resolveBtn.className = "jp-finding-btn";
+          resolveBtn.textContent = "Resolve";
+          const ignoreBtn = document.createElement("button");
+          ignoreBtn.className = "jp-finding-btn";
+          ignoreBtn.textContent = "Ignore";
+
+          const applyFeedbackState = () => {
+            const action = this.feedbackActions.get(actionKey);
+            discussBtn.className = "jp-finding-btn" + (action === "discuss"  ? " jp-finding-btn--discuss" : "");
+            resolveBtn.className = "jp-finding-btn" + (action === "resolved" ? " jp-finding-btn--active"  : "");
+            ignoreBtn.className  = "jp-finding-btn" + (action === "ignored"  ? " jp-finding-btn--active"  : "");
+            qCard.classList.toggle("jp-finding-card--resolved", action === "resolved");
+            qCard.classList.toggle("jp-finding-card--ignored",  action === "ignored");
+          };
+          applyFeedbackState();
+
+          discussBtn.addEventListener("click", () => {
+            const current = this.feedbackActions.get(actionKey);
+            if (current === "discuss") {
+              this.feedbackActions.delete(actionKey);
+            } else {
+              this.feedbackActions.set(actionKey, "discuss");
+            }
+            applyFeedbackState();
+            updateSnippetFeedbackBadges();
+          });
+          resolveBtn.addEventListener("click", () => {
+            const current = this.feedbackActions.get(actionKey);
+            if (current === "resolved") {
+              this.feedbackActions.delete(actionKey);
+            } else {
+              this.feedbackActions.set(actionKey, "resolved");
+            }
+            applyFeedbackState();
+            updateSnippetFeedbackBadges();
+          });
+          ignoreBtn.addEventListener("click", () => {
+            const current = this.feedbackActions.get(actionKey);
+            if (current === "ignored") {
+              this.feedbackActions.delete(actionKey);
+            } else {
+              this.feedbackActions.set(actionKey, "ignored");
+            }
+            applyFeedbackState();
+            updateSnippetFeedbackBadges();
+          });
+
+          btnsRow.appendChild(discussBtn);
+          btnsRow.appendChild(resolveBtn);
+          btnsRow.appendChild(ignoreBtn);
+          qCard.appendChild(btnsRow);
           list.appendChild(qCard);
         });
         feedbackCard.appendChild(list);
@@ -554,7 +771,6 @@ export class JustPROverlay {
     centerCol.appendChild(diffFocus);
 
     // Feedback card container — re-populated by renderFocusedSnippet
-    const feedbackContainer = document.createElement("div");
     centerCol.appendChild(feedbackContainer);
 
     cols.appendChild(centerCol);
@@ -571,42 +787,6 @@ export class JustPROverlay {
       });
     });
 
-    // ── Footer nav ────────────────────────────────────────────────
-    const nav = document.createElement("div");
-    nav.className = "jp-step-nav";
-
-    const prevBtn = document.createElement("button");
-    prevBtn.className = "jp-nav-btn";
-    prevBtn.innerHTML = "← Back";
-    prevBtn.addEventListener("click", () => {
-      if (catIdx === 0) {
-        this.currentStep = 0;
-        this.renderScreen("overview");
-      } else {
-        this.currentStep = catIdx;
-        this.renderScreen("step");
-      }
-    });
-    nav.appendChild(prevBtn);
-
-    const nextBtn = document.createElement("button");
-    nextBtn.className = "jp-nav-btn jp-primary";
-    if (isLast) {
-      nextBtn.innerHTML = "Finish Review →";
-      nextBtn.addEventListener("click", () => {
-        this.currentStep = this.state.categories.length + 1;
-        this.renderScreen("decision");
-      });
-    } else {
-      nextBtn.innerHTML = "Next →";
-      nextBtn.addEventListener("click", () => {
-        this.currentStep = catIdx + 2;
-        this.renderScreen("step");
-      });
-    }
-    nav.appendChild(nextBtn);
-
-    el.appendChild(nav);
     this.screenEl.appendChild(el);
     this.updateProgressBar();
   }
@@ -631,6 +811,7 @@ export class JustPROverlay {
     const body = document.createElement("div");
     body.className = "jp-decision-body";
 
+    // AI recommendation card
     if (s.recommendation) {
       const icons: Record<string, string> = {
         approve: "✓", request_changes: "✕", needs_review: "⚑",
@@ -649,10 +830,47 @@ export class JustPROverlay {
       `;
     }
 
+    // ── PR-level decision picker ──────────────────────────────
+    const decisionLabel = document.createElement("div");
+    decisionLabel.className = "jp-sections-label";
+    decisionLabel.textContent = "Your Review Decision";
+    body.appendChild(decisionLabel);
+
+    const decisionPicker = document.createElement("div");
+    decisionPicker.className = "jp-decision-picker";
+
+    const decisions: { value: "APPROVE" | "REQUEST_CHANGES" | "COMMENT"; label: string; desc: string }[] = [
+      { value: "APPROVE",          label: "✓  Approve",          desc: "Looks good — approve the PR" },
+      { value: "REQUEST_CHANGES",  label: "✕  Request Changes",  desc: "Changes needed before merge" },
+      { value: "COMMENT",          label: "◎  Comment Only",     desc: "Leave comments without a verdict" },
+    ];
+
+    const updatePicker = () => {
+      decisionPicker.querySelectorAll<HTMLElement>(".jp-decision-pick-btn").forEach(btn => {
+        btn.classList.toggle("jp-decision-pick-btn--active", btn.dataset.value === this.reviewDecision);
+      });
+    };
+
+    decisions.forEach(d => {
+      const btn = document.createElement("button");
+      btn.className = "jp-decision-pick-btn";
+      btn.dataset.value = d.value;
+      btn.innerHTML = `<span class="jp-decision-pick-label">${d.label}</span><span class="jp-decision-pick-desc">${d.desc}</span>`;
+      btn.addEventListener("click", () => {
+        this.reviewDecision = this.reviewDecision === d.value ? null : d.value;
+        updatePicker();
+        updateSubmitState();
+      });
+      decisionPicker.appendChild(btn);
+    });
+    updatePicker();
+    body.appendChild(decisionPicker);
+
     // Section flags summary
     if (s.categories.length > 0) {
       const flagsTitle = document.createElement("div");
       flagsTitle.className = "jp-sections-label";
+      flagsTitle.style.marginTop = "16px";
       flagsTitle.textContent = "Sections Reviewed";
       body.appendChild(flagsTitle);
 
@@ -672,6 +890,16 @@ export class JustPROverlay {
       });
     }
 
+    // Comment summary
+    const discussCount = [...this.feedbackActions.values()].filter(v => v === "discuss").length;
+    const noteCount = this.comments.size;
+    if (discussCount + noteCount > 0) {
+      const commentSummary = document.createElement("div");
+      commentSummary.className = "jp-comment-summary";
+      commentSummary.textContent = `${discussCount + noteCount} inline comment${discussCount + noteCount !== 1 ? "s" : ""} will be posted`;
+      body.appendChild(commentSummary);
+    }
+
     el.appendChild(body);
 
     const footer = document.createElement("div");
@@ -681,6 +909,61 @@ export class JustPROverlay {
       this.currentStep = 0;
       this.renderScreen("overview");
     });
+
+    // Check prior submission
+    const priorRaw = sessionStorage.getItem(this.submittedKey);
+    const prior = priorRaw ? JSON.parse(priorRaw) as { event: string; commentCount: number; ts: number } : null;
+
+    const submitBtn = document.createElement("button");
+    submitBtn.className = "jp-submit-review-btn";
+    const statusEl = document.createElement("div");
+    statusEl.className = "jp-submit-review-status";
+
+    const updateSubmitState = () => {
+      if (prior && !this.reviewDecision) {
+        // Already submitted, no new decision selected
+        const minsAgo = Math.round((Date.now() - prior.ts) / 60000);
+        const when = minsAgo < 1 ? "just now" : `${minsAgo}m ago`;
+        submitBtn.textContent = "Resubmit Review";
+        submitBtn.disabled = false;
+        statusEl.className = "jp-submit-review-status jp-submit-review-status--ok";
+        statusEl.textContent = `${prior.event} submitted ${when} · ${prior.commentCount} comment${prior.commentCount !== 1 ? "s" : ""}`;
+      } else if (!this.reviewDecision) {
+        submitBtn.textContent = "Submit Review to GitHub";
+        submitBtn.disabled = true;
+        statusEl.textContent = "Select a decision above to submit";
+        statusEl.className = "jp-submit-review-status";
+      } else {
+        submitBtn.textContent = prior ? "Resubmit Review" : "Submit Review to GitHub";
+        submitBtn.disabled = false;
+        statusEl.textContent = "";
+        statusEl.className = "jp-submit-review-status";
+      }
+    };
+    updateSubmitState();
+
+    submitBtn.addEventListener("click", async () => {
+      if (!this.reviewDecision) return;
+      submitBtn.disabled = true;
+      statusEl.className = "jp-submit-review-status";
+      statusEl.textContent = "Submitting…";
+
+      try {
+        const commentCount = await this.submitReview();
+        const record = { event: this.reviewDecision, commentCount, ts: Date.now() };
+        sessionStorage.setItem(this.submittedKey, JSON.stringify(record));
+        statusEl.className = "jp-submit-review-status jp-submit-review-status--ok";
+        statusEl.textContent = `${this.reviewDecision.replace("_", " ")} posted to GitHub ✓ · ${commentCount} comment${commentCount !== 1 ? "s" : ""}`;
+      } catch (err) {
+        submitBtn.disabled = false;
+        statusEl.className = "jp-submit-review-status jp-submit-review-status--err";
+        statusEl.textContent = err instanceof Error ? err.message : "Failed to post review";
+        updateSubmitState();
+      }
+    });
+
+    footer.appendChild(submitBtn);
+    footer.appendChild(statusEl);
     el.appendChild(footer);
 
     this.screenEl.appendChild(el);
@@ -795,6 +1078,43 @@ export class JustPROverlay {
       if (supported === "plaintext") return escapeHtml(code);
       return hljs.highlight(code, { language: supported }).value;
     } catch { return escapeHtml(code); }
+  }
+
+  private buildFileTree(paths: string[]): FileTreeNode {
+    const root: FileTreeNode = {
+      name: "",
+      path: "",
+      isFile: false,
+      children: new Map<string, FileTreeNode>(),
+    };
+
+    const uniquePaths = [...new Set(paths)];
+    uniquePaths.forEach((fullPath) => {
+      const segments = fullPath.split("/").filter(Boolean);
+      let cursor = root;
+      let prefix = "";
+
+      segments.forEach((seg, idx) => {
+        prefix = prefix ? `${prefix}/${seg}` : seg;
+        let next = cursor.children.get(seg);
+        if (!next) {
+          next = {
+            name: seg,
+            path: prefix,
+            isFile: idx === segments.length - 1,
+            children: new Map<string, FileTreeNode>(),
+          };
+          cursor.children.set(seg, next);
+        }
+        if (idx === segments.length - 1) {
+          next.isFile = true;
+          next.fullPath = fullPath;
+        }
+        cursor = next;
+      });
+    });
+
+    return root;
   }
 
   private buildSnippet(s: CodeSnippet, catIdx: number, snippetIdx: number): HTMLElement {
@@ -931,6 +1251,53 @@ export class JustPROverlay {
     return note;
   }
 
+  // ── GitHub review submission ────────────────────────────────
+
+  // Returns the number of inline comments posted
+  private async submitReview(): Promise<number> {
+    interface ReviewComment { path: string; line: number; body: string; }
+    const comments: ReviewComment[] = [];
+
+    // 1. Notes added via "+ Note" (key = "catIdx:snippetIdx")
+    this.comments.forEach((text, key) => {
+      const parts = key.split(":");
+      if (parts.length !== 2) return;
+      const catIdx = parseInt(parts[0], 10);
+      const snippetIdx = parseInt(parts[1], 10);
+      const snippet = this.state.categories[catIdx]?.snippets[snippetIdx];
+      if (!snippet?.file) return;
+      comments.push({ path: snippet.file, line: snippet.lineStart || 1, body: text });
+    });
+
+    // 2. "Discuss" feedback actions (key = "catIdx:questionIdx")
+    // Resolve and Ignore suppress posting — only Discuss posts to GitHub
+    this.feedbackActions.forEach((action, key) => {
+      if (action !== "discuss") return;
+      const parts = key.split(":");
+      if (parts.length !== 2) return;
+      const catIdx = parseInt(parts[0], 10);
+      const qIdx = parseInt(parts[1], 10);
+      const q = this.state.categories[catIdx]?.reviewQuestions[qIdx];
+      if (!q?.file) return;
+      // Format clearly as a discussion point
+      const body = `> ${q.text}\n\n**Flagged for discussion** during AI-assisted review.`;
+      comments.push({ path: q.file, line: q.lineStart || 1, body });
+    });
+
+    const event = this.reviewDecision ?? "COMMENT";
+
+    const resp = await fetch(`${BACKEND_URL}/review`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: this.prUrl, event, body: "", comments }),
+    });
+    if (!resp.ok) {
+      const msg = await resp.text().catch(() => `HTTP ${resp.status}`);
+      throw new Error(msg || `HTTP ${resp.status}`);
+    }
+    return comments.length;
+  }
+
   // ── Analysis / SSE ─────────────────────────────────────────
 
   private reset(): void {
@@ -940,6 +1307,8 @@ export class JustPROverlay {
     };
     this.currentStep = 0;
     this.comments.clear();
+    this.reviewDecision = null;
+    this.feedbackActions.clear();
     this.progressBarEl?.remove();
     this.progressBarEl = null;
     this.renderScreen("idle");
@@ -954,6 +1323,8 @@ export class JustPROverlay {
     };
     this.currentStep = 0;
     this.comments.clear();
+    this.reviewDecision = null;
+    this.feedbackActions.clear();
     if (!this.isOpen) this.togglePanel(true);
     this.renderScreen("loading");
 
@@ -1093,7 +1464,10 @@ export class JustPROverlay {
     this.isOpen = !this.isOpen;
     this.panel.classList.toggle("jp-open", this.isOpen);
     this.toggle.classList.toggle("jp-active", this.isOpen);
-    if (this.isOpen && !skipReset && !this.isAnalyzing) this.reset();
+    if (this.isOpen && !skipReset && !this.isAnalyzing) {
+      // Opening the extension should immediately start analysis.
+      void this.startAnalysis();
+    }
   }
 
   private initResize(handle: HTMLElement, panel: HTMLElement): void {

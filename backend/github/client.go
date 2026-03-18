@@ -173,6 +173,71 @@ func (c *Client) fetchSingleFile(ctx context.Context, ref *analysis.PRRef, sha, 
 	return string(body), nil
 }
 
+// ReviewComment is a single inline comment for a pull request review.
+type ReviewComment struct {
+	Path string `json:"path"`
+	Line int    `json:"line"`
+	Body string `json:"body"`
+}
+
+// PostReview submits a pull request review via the GitHub REST API.
+// event must be one of "APPROVE", "REQUEST_CHANGES", or "COMMENT".
+func (c *Client) PostReview(ctx context.Context, ref *analysis.PRRef, event, body string, comments []ReviewComment) error {
+	type ghComment struct {
+		Path     string `json:"path"`
+		Line     int    `json:"line"`
+		Body     string `json:"body"`
+		Side     string `json:"side"`
+		Position int    `json:"position,omitempty"`
+	}
+	type payload struct {
+		Body     string       `json:"body"`
+		Event    string       `json:"event"`
+		Comments []ghComment  `json:"comments,omitempty"`
+	}
+
+	ghComments := make([]ghComment, 0, len(comments))
+	for _, c := range comments {
+		if c.Path == "" || c.Body == "" {
+			continue
+		}
+		ghComments = append(ghComments, ghComment{
+			Path: c.Path,
+			Line: c.Line,
+			Body: c.Body,
+			Side: "RIGHT",
+		})
+	}
+
+	p := payload{Body: body, Event: event, Comments: ghComments}
+	data, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Errorf("marshaling review payload: %w", err)
+	}
+
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%d/reviews", ref.Owner, ref.Repo, ref.Number)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(string(data)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("github request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("github API error %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+	return nil
+}
+
 func (c *Client) newRequest(ctx context.Context, url, accept string) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

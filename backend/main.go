@@ -32,6 +32,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", handler.Health())
 	mux.HandleFunc("/analyze", handler.Analyze(ghClient, analyzer, analysisCache))
+	mux.HandleFunc("/review", handler.Review(ghClient))
 
 	log.Printf("JUST-PR backend listening on :%s", port)
 	if err := http.ListenAndServe(":"+port, corsMiddleware(corsOrigins, mux)); err != nil {

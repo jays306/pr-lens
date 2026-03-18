@@ -67,18 +67,25 @@ Available category IDs (only emit categories with actual changes):
 - refactor (🧱 Refactor / Internal) — code organization, naming, patterns
 - tests (🧪 Tests) — test coverage, test quality, missing tests
 - dependencies (📦 Dependencies) — package changes, version bumps
-- config (⚙️ Config / Infra) — env vars, CI/CD, deployment, Docker
+- config (⚙️ Config) — application-level config: env vars, feature flags, app settings files
+- infra (🏗 Infra / CI/CD) — Helm charts, Kubernetes manifests, Docker, Terraform, CI/CD pipelines, GitHub Actions
 - docs (📝 Docs / Other) — documentation, comments, README
 
 ### Snippet shape:
 {
   "file": "<full file path from diff>",
-  "language": "<ts|js|go|python|java|sql|yaml|json|bash|css|html>",
+  "language": "<typescript|javascript|go|python|java|kotlin|swift|ruby|rust|cpp|c|scala|php|protobuf|sql|yaml|json|bash|css|html|xml>",
   "before": "<removed/replaced lines from diff (- lines without the - prefix), empty string if pure addition>",
   "after": "<added lines from diff (+ lines without the + prefix), empty string if pure deletion>",
   "lineStart": <starting line number from the diff hunk header>,
-  "explanation": "<1-2 sentences: what this change does and why a reviewer should care>"
+  "explanation": "<1-2 sentences: what this change does and why a reviewer should care>",
+  "riskLevel": "low|medium|high|critical"
 }
+
+"riskLevel" reflects the criticality of this specific change, which may differ from the category's overall riskLevel.
+
+### reviewQuestions shape:
+[{"text":"<question>","file":"<file path matching a snippet>","lineStart":<line number matching a snippet>}, ...]
 
 ### Category summary guidelines:
 - Use markdown. Reference specific files with backticks.
@@ -89,6 +96,8 @@ Available category IDs (only emit categories with actual changes):
 - 2-4 questions per category
 - Ask about things that can't be determined from the diff alone (intent, edge cases, production behavior)
 - Frame as "Have you considered..." or "What happens when..." — not yes/no questions
+- Each question MUST reference the specific file and line it relates to using the shape: {"text":"...","file":"<file path>","lineStart":<n>}
+- "file" and "lineStart" must match an existing snippet in this category exactly
 
 ## 5. Recommendation
 {"type":"recommendation","data":{"action":"approve|request_changes|needs_review","reason":"<markdown: 2-3 sentences explaining your recommendation>"}}
@@ -156,14 +165,14 @@ Emit exactly TWO JSON lines. Each must be valid JSON with "type" and "data" fiel
 {"type":"category","data":{"id":"%s","icon":"<emoji>","label":"<name>","summary":"<markdown: what changed and why it matters>","riskLevel":"low|medium|high|critical","fileCount":<n>,"snippets":[<snippet>,...],"reviewQuestions":["<question>",...]}}
 
 ### Snippet shape:
-{"file":"<full file path>","language":"<ts|js|go|python|java|sql|yaml|json|bash|css|html>","before":"<removed lines without - prefix, empty string if pure addition>","after":"<added lines without + prefix, empty string if pure deletion>","lineStart":<line number from hunk header>,"explanation":"<1-2 sentences>"}
+{"file":"<full file path>","language":"<ts|js|go|python|java|sql|yaml|json|bash|css|html>","before":"<removed lines without - prefix, empty string if pure addition>","after":"<added lines without + prefix, empty string if pure deletion>","lineStart":<line number from hunk header>,"explanation":"<1-2 sentences>","riskLevel":"low|medium|high|critical"}
 
 Rules:
 - EVERY file in the diff must appear as a snippet. No file may be omitted.
 - Snippets must contain COMPLETE diff hunks — never truncate.
 - fileCount must equal number of snippets.
 - Order snippets by risk (highest first).
-- 2-4 reviewQuestions per category. Ask about intent, edge cases, production behavior — not yes/no questions.
+- 2-4 reviewQuestions per category. Each question must be an object: {"text":"...","file":"<file path>","lineStart":<n>} where file and lineStart match an existing snippet exactly. Ask about intent, edge cases, production behavior — not yes/no questions.
 
 ## Line 2: Done event
 {"type":"done","data":{}}`, categoryID, categoryID)

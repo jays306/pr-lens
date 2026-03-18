@@ -45,10 +45,24 @@ func Triage(ctx context.Context, apiKey string, files []PRFile) (TriageResult, e
 func triageSystemPrompt() string {
 	return `You are a code classification assistant. Given a list of files changed in a pull request, classify each file into exactly one category.
 
-Available categories: security, api, database, migrations, performance, logic, refactor, tests, dependencies, config, docs
+Available categories:
+- security: auth, tokens, input validation, injection risks
+- api: route changes, request/response shapes, middleware
+- database: queries, schema, connections, transactions
+- migrations: schema migrations, data migrations
+- performance: N+1 queries, memory, concurrency, caching
+- logic: core domain logic, state machines, workflow rules, validation
+- refactor: code organization, naming, patterns
+- tests: test coverage, test quality, missing tests
+- dependencies: package changes, version bumps (go.mod, go.sum, package.json, Gemfile, etc.)
+- config: application-level config: env vars, feature flags, app settings files (*.yml, *.env, *.toml that configure the app itself)
+- infra: infrastructure and deployment: Helm charts, Kubernetes manifests, Docker, Terraform, CI/CD pipelines, GitHub Actions, Makefile
+- docs: documentation, comments, README
+
+Every file must be assigned to exactly one category. Helm/Kubernetes/Docker/CI files go to "infra", not "config". Use "docs" only for pure documentation.
 
 Respond with ONLY a valid JSON object mapping category names to arrays of filenames.
-Example: {"security":["auth/jwt.go"],"api":["handlers/user.go"]}
+Example: {"dependencies":["go.mod","go.sum"],"infra":["helm/values.yaml","helm/templates/config.yaml"],"logic":["pkg/worker.go"]}
 No explanation. No markdown. Only the JSON object.`
 }
 
@@ -78,15 +92,5 @@ func parseTriageResponse(raw string) (TriageResult, error) {
 		return nil, fmt.Errorf("triage: parse failed: %w", err)
 	}
 
-	validCategories := map[string]bool{
-		"security": true, "api": true, "database": true, "migrations": true,
-		"performance": true, "logic": true, "refactor": true, "tests": true,
-		"dependencies": true, "config": true, "docs": true,
-	}
-	for k := range result {
-		if !validCategories[k] {
-			delete(result, k)
-		}
-	}
 	return result, nil
 }

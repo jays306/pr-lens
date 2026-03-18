@@ -5,9 +5,11 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/just-pr/backend/analysis"
+	"github.com/just-pr/backend/cache"
 	"github.com/just-pr/backend/github"
 	"github.com/just-pr/backend/handler"
 	"github.com/just-pr/backend/providers"
@@ -23,9 +25,13 @@ func main() {
 	analyzer := buildAnalyzer()
 	log.Printf("Using AI provider: %s", analyzer.Name())
 
+	cacheTTL := 24 * time.Hour
+	analysisCache := cache.New(cacheTTL)
+	log.Printf("Analysis cache enabled (version=%s ttl=%s)", cache.Version, cacheTTL)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", handler.Health())
-	mux.HandleFunc("/analyze", handler.Analyze(ghClient, analyzer))
+	mux.HandleFunc("/analyze", handler.Analyze(ghClient, analyzer, analysisCache))
 
 	log.Printf("JUST-PR backend listening on :%s", port)
 	if err := http.ListenAndServe(":"+port, corsMiddleware(corsOrigins, mux)); err != nil {

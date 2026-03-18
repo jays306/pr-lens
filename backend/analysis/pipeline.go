@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"slices"
 	"strings"
 	"time"
 )
@@ -110,13 +111,24 @@ func (p *PipelineProvider) AnalyzePRFull(
 					emitted[id] = true
 				}
 				categoryEvents = append(categoryEvents, ev)
-				if err := emit(ev); err != nil {
-					return err
-				}
 			}
 		}
 	}
 	log.Printf("[pipeline] parallel workers done in %s", time.Since(parallelStart).Round(time.Millisecond))
+
+	// Sort categories by risk level before emitting so the frontend always
+	// receives them highest-risk first, regardless of goroutine completion order.
+	riskRank := map[string]int{"critical": 0, "high": 1, "medium": 2, "low": 3}
+	slices.SortStableFunc(categoryEvents, func(a, b StreamEvent) int {
+		ra, _ := a.Data["riskLevel"].(string)
+		rb, _ := b.Data["riskLevel"].(string)
+		return riskRank[ra] - riskRank[rb]
+	})
+	for _, ev := range categoryEvents {
+		if err := emit(ev); err != nil {
+			return err
+		}
+	}
 
 	recStart := time.Now()
 	recEvents, err := runRecommendationCall(ctx, p.cfg.Caller, categoryEvents)

@@ -691,7 +691,7 @@
   font-weight: 400;
 }
 
-/* ─── Step ──────────────────────────────────────────────────── */
+/* ─── Step (3-column horizontal layout) ─────────────────────── */
 .jp-step {
   flex: 1;
   display: flex;
@@ -701,94 +701,550 @@
 }
 
 @keyframes jp-enter {
-  from { opacity: 0; transform: translateX(12px); }
+  from { opacity: 0; transform: translateX(10px); }
   to   { opacity: 1; transform: none; }
 }
 
-.jp-step.jp-slide-back {
-  animation-name: jp-enter-back;
-}
-
-@keyframes jp-enter-back {
-  from { opacity: 0; transform: translateX(-12px); }
-  to   { opacity: 1; transform: none; }
-}
-
-/* The left rail — the signature design element */
-.jp-step-rail {
-  position: absolute;
-  left: 0; top: 0; bottom: 0;
-  width: 4px;
-  transition: background 300ms ease;
-}
-
-.jp-step-rail[data-level="low"]      { background: var(--green); }
-.jp-step-rail[data-level="medium"]   { background: var(--yellow); }
-.jp-step-rail[data-level="high"]     { background: var(--amber); }
-.jp-step-rail[data-level="critical"] { background: var(--red); }
-
+/* Header bar — full width above the 3 columns */
 .jp-step-header {
-  padding: var(--sp) var(--sp) 18px calc(var(--sp) + 8px);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px 13px;
   border-bottom: 1px solid var(--border-dim);
+  background: var(--bg);
   flex-shrink: 0;
-  position: relative;
+}
+
+.jp-step-rail-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.jp-step-rail-dot[data-level="low"]      { background: var(--green); }
+.jp-step-rail-dot[data-level="medium"]   { background: var(--yellow); }
+.jp-step-rail-dot[data-level="high"]     { background: var(--amber); }
+.jp-step-rail-dot[data-level="critical"] { background: var(--red); box-shadow: 0 0 0 3px var(--red-dim); }
+
+.jp-step-header-text { flex: 1; min-width: 0; }
+
+.jp-step-header-summary {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.65;
+  color: var(--text-secondary);
 }
 
 .jp-step-eyebrow {
   font-size: 9px;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--text-ghost);
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .jp-step-title-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
-.jp-step-icon { font-size: 20px; }
+.jp-step-icon { font-size: 16px; flex-shrink: 0; }
 
 .jp-step-title {
   font-family: var(--display);
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--text-primary);
   flex: 1;
   letter-spacing: -0.01em;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .jp-step-risk-pill {
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 500;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  padding: 3px 8px;
+  padding: 3px 7px;
   border-radius: 2px;
+  flex-shrink: 0;
 }
 
 .jp-step-risk-pill[data-level="low"]      { color: var(--green);  background: var(--green-dim); }
 .jp-step-risk-pill[data-level="medium"]   { color: var(--yellow); background: var(--yellow-dim); }
-.jp-step-risk-pill[data-level="high"]     { color: var(--amber);  background: var(--amber-dim); }
-.jp-step-risk-pill[data-level="critical"] { color: var(--red);    background: var(--red-dim); }
+.jp-step-risk-pill[data-level="high"]     { color: var(--amber);  background: var(--amber-mid); }
+.jp-step-risk-pill[data-level="critical"] { color: var(--red);    background: var(--red-mid); }
 
-.jp-step-body {
+/* 2-column grid: file nav + diff area */
+.jp-step-cols {
   flex: 1;
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* Shared column label */
+.jp-col-label {
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-ghost);
+  padding: 12px 12px 8px;
+  border-bottom: 1px solid var(--border-dim);
+  flex-shrink: 0;
+}
+
+/* ── Left: file navigator ──── */
+.jp-step-col-files {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border-dim);
   overflow-y: auto;
-  padding: var(--sp) var(--sp) var(--sp) calc(var(--sp) + 8px);
+  background: var(--bg-surface);
   scrollbar-width: thin;
   scrollbar-color: var(--border-dim) transparent;
 }
 
-.jp-step-body::-webkit-scrollbar { width: 3px; }
-.jp-step-body::-webkit-scrollbar-thumb { background: var(--border); }
+.jp-step-col-files::-webkit-scrollbar { width: 3px; }
+.jp-step-col-files::-webkit-scrollbar-thumb { background: var(--border-dim); }
 
-.jp-step-summary {
-  font-size: 12.5px;
-  line-height: 1.75;
+.jp-file-group {
+  padding: 10px 10px 6px;
+  border-bottom: 1px solid var(--border-dim);
+}
+
+.jp-file-group-name {
+  font-size: 10px;
+  font-weight: 500;
   color: var(--text-secondary);
-  margin-bottom: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 5px;
+}
+
+.jp-file-range-list {
+  border-left: 2px solid var(--border);
+  padding-left: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.jp-file-range-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border-dim);
+  border-radius: 3px;
+  background: var(--bg);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--t), border-color var(--t);
+}
+
+.jp-file-range-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+
+.jp-file-range-btn--active {
+  background: var(--navy-dim);
+  border-color: var(--navy);
+}
+
+.jp-file-range-group {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.jp-file-range-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.jp-file-range-line {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-ghost);
+}
+
+.jp-file-range-risk {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.jp-file-range-risk[data-level="low"]      { background: var(--green); }
+.jp-file-range-risk[data-level="medium"]   { background: var(--yellow); }
+.jp-file-range-risk[data-level="high"]     { background: var(--amber); }
+.jp-file-range-risk[data-level="critical"] { background: var(--red); }
+
+/* ── Center: summary card + diff cards ── */
+.jp-step-col-diffs {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 12px;
+  gap: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-dim) transparent;
+  background: var(--bg-surface);
+}
+
+.jp-step-col-diffs::-webkit-scrollbar { width: 3px; }
+.jp-step-col-diffs::-webkit-scrollbar-thumb { background: var(--border); }
+
+/* Summary card at top of center col */
+.jp-h3-card {
+  background: var(--bg);
+  border: 1px solid var(--border-dim);
+  border-radius: 6px;
+  padding: 12px 14px;
+  flex-shrink: 0;
+}
+
+.jp-h3-card-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 5px;
+  letter-spacing: 0.01em;
+}
+
+.jp-h3-card-body {
+  font-size: 11px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+}
+
+/* Diff card — one per snippet */
+.jp-diff-card {
+  background: var(--bg);
+  border: 1px solid var(--border-dim);
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+  transition: box-shadow 300ms ease, border-color 300ms ease;
+}
+
+.jp-diff-card--highlight {
+  border-color: var(--navy);
+  box-shadow: 0 0 0 2px var(--navy-dim);
+}
+
+.jp-diff-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border-dim);
+  gap: 8px;
+}
+
+.jp-diff-card-meta { flex: 1; min-width: 0; }
+
+.jp-diff-card-title {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+}
+
+.jp-diff-card-file {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-ghost);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The diff grid lives inside jp-diff-card-diff */
+.jp-diff-card-diff {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  /* Without min-width:0, grid cells expand to fit content and overflow-x on
+     the children never fires. Setting min-width:0 lets the cells shrink and
+     the pre elements scroll horizontally instead of stretching the layout. */
+  min-width: 0;
+}
+
+.jp-diff-card-diff .jp-diff-col:first-child {
+  border-right: 1px solid var(--border-dim);
+}
+
+/* Per-snippet note row */
+.jp-diff-card-note-wrap {
+  padding: 6px 10px;
+  border-top: 1px solid var(--border-dim);
+  background: var(--bg-surface);
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+}
+
+/* ── Right: findings ── */
+.jp-step-col-findings {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  border-left: 1px solid var(--border-dim);
+  background: var(--bg);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-dim) transparent;
+}
+
+.jp-step-col-findings::-webkit-scrollbar { width: 3px; }
+.jp-step-col-findings::-webkit-scrollbar-thumb { background: var(--border-dim); }
+
+.jp-findings-header {
+  padding: 12px 12px 8px;
+  border-bottom: 1px solid var(--border-dim);
+  flex-shrink: 0;
+}
+
+.jp-findings-meta {
+  font-size: 9px;
+  color: var(--text-ghost);
+  margin-top: 2px;
+}
+
+.jp-finding-card {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-dim);
+  background: var(--bg);
+  transition: background var(--t);
+}
+
+.jp-finding-card--critical {
+  background: var(--red-dim);
+  border-left: 2px solid var(--red);
+}
+
+.jp-finding-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.jp-finding-text {
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+.jp-finding-card--critical .jp-finding-text {
+  color: var(--text-primary);
+}
+
+.jp-finding-action-label {
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--red);
+  flex-shrink: 0;
+  padding-top: 1px;
+}
+
+.jp-finding-btns {
+  display: flex;
+  gap: 5px;
+}
+
+.jp-finding-btn {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all var(--t);
+}
+
+.jp-finding-btn:hover {
+  border-color: var(--navy);
+  color: var(--navy);
+  background: var(--navy-dim);
+}
+
+.jp-finding-card--critical .jp-finding-btn:hover {
+  border-color: var(--red);
+  color: var(--red);
+  background: var(--red-dim);
+}
+
+.jp-findings-empty {
+  padding: 14px 12px;
+  font-size: 10px;
+  color: var(--text-ghost);
+  font-style: italic;
+}
+
+/* Section note sits at bottom of right col */
+.jp-step-col-findings .jp-section-comment-wrap {
+  margin: auto 12px 12px;
+  margin-top: auto;
+}
+
+/* ── Focused diff area (single diff shown at a time) ── */
+.jp-diff-focus {
+  background: var(--bg);
+  border: 1px solid var(--border-dim);
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.jp-diff-focus-summary {
+  padding: 10px 14px;
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  background: var(--navy-dim);
+  border-bottom: 1px solid var(--navy-mid);
+  border-left: 3px solid var(--navy);
+  font-style: italic;
+}
+
+/* ── Feedback card (questions below the focused diff) ── */
+.jp-feedback-card {
+  background: var(--bg);
+  border: 1px solid var(--border-dim);
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.jp-feedback-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-dim);
+  background: var(--bg-surface);
+}
+
+.jp-feedback-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.jp-feedback-meta {
+  font-size: 9px;
+  color: var(--text-ghost);
+}
+
+.jp-feedback-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.jp-feedback-list .jp-finding-card {
+  border-bottom: 1px solid var(--border-dim);
+  border-left: none;
+}
+
+.jp-feedback-list .jp-finding-card:last-child {
+  border-bottom: none;
+}
+
+/* ── Right col: context + progress cards ── */
+.jp-context-card {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-dim);
+  background: var(--bg);
+}
+
+.jp-context-label {
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-ghost);
+  margin-bottom: 6px;
+}
+
+.jp-context-group {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.4;
+  margin-bottom: 4px;
+}
+
+.jp-context-file {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-ghost);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+}
+
+.jp-context-line {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--text-ghost);
+}
+
+.jp-context-progress-num {
+  font-family: var(--display);
+  font-size: 28px;
+  font-weight: 900;
+  color: var(--navy);
+  letter-spacing: -0.02em;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+.jp-context-progress-total {
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--text-ghost);
+}
+
+.jp-context-progress-sub {
+  font-size: 9px;
+  color: var(--text-ghost);
+}
+
+.jp-context-note-wrap {
+  margin: 12px;
 }
 
 /* Snippets */
@@ -833,9 +1289,9 @@
 }
 
 .jp-diff-col {
-  overflow-x: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-dim) transparent;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .jp-diff-col:first-child {
@@ -867,6 +1323,8 @@
   white-space: pre;
   overflow-x: auto;
   min-height: 40px;
+  flex: 1;
+  min-width: 0;
 }
 
 .jp-diff-col--before .jp-diff-code { background: rgba(192, 57, 43, 0.04); color: var(--text-secondary); }

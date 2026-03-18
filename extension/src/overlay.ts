@@ -1,4 +1,4 @@
-import type { SSEEvent, PRCategory, RiskLevel, CodeSnippet } from "./types";
+import type { SSEEvent, PRCategory, RiskLevel, CodeSnippet, ReviewQuestion } from "./types";
 import { overlayCSS } from "./__generated_css";
 import { marked } from "marked";
 import hljs from "highlight.js/lib/core";
@@ -7,6 +7,15 @@ import javascript from "highlight.js/lib/languages/javascript";
 import python from "highlight.js/lib/languages/python";
 import go from "highlight.js/lib/languages/go";
 import java from "highlight.js/lib/languages/java";
+import kotlin from "highlight.js/lib/languages/kotlin";
+import swift from "highlight.js/lib/languages/swift";
+import ruby from "highlight.js/lib/languages/ruby";
+import rust from "highlight.js/lib/languages/rust";
+import cpp from "highlight.js/lib/languages/cpp";
+import c from "highlight.js/lib/languages/c";
+import scala from "highlight.js/lib/languages/scala";
+import php from "highlight.js/lib/languages/php";
+import protobuf from "highlight.js/lib/languages/protobuf";
 import xml from "highlight.js/lib/languages/xml";
 import bash from "highlight.js/lib/languages/bash";
 import sql from "highlight.js/lib/languages/sql";
@@ -19,6 +28,15 @@ hljs.registerLanguage("javascript", javascript);
 hljs.registerLanguage("python", python);
 hljs.registerLanguage("go", go);
 hljs.registerLanguage("java", java);
+hljs.registerLanguage("kotlin", kotlin);
+hljs.registerLanguage("swift", swift);
+hljs.registerLanguage("ruby", ruby);
+hljs.registerLanguage("rust", rust);
+hljs.registerLanguage("cpp", cpp);
+hljs.registerLanguage("c", c);
+hljs.registerLanguage("scala", scala);
+hljs.registerLanguage("php", php);
+hljs.registerLanguage("protobuf", protobuf);
 hljs.registerLanguage("xml", xml);
 hljs.registerLanguage("html", xml);
 hljs.registerLanguage("bash", bash);
@@ -343,74 +361,217 @@ export class JustPROverlay {
     const el = document.createElement("div");
     el.className = "jp-step";
 
-    // Left rail
-    const rail = document.createElement("div");
-    rail.className = "jp-step-rail";
-    rail.dataset.level = cat.riskLevel;
-    el.appendChild(rail);
-
-    // Header
+    // ── Header bar ────────────────────────────────────────────────
     const header = document.createElement("div");
     header.className = "jp-step-header";
     header.innerHTML = `
-      <div class="jp-step-eyebrow">Section ${catIdx + 1} of ${total} · ${cat.fileCount} file${cat.fileCount !== 1 ? "s" : ""}</div>
-      <div class="jp-step-title-row">
-        <span class="jp-step-icon">${cat.icon}</span>
-        <span class="jp-step-title">${cat.label}</span>
-        <span class="jp-step-risk-pill" data-level="${cat.riskLevel}">${cat.riskLevel}</span>
+      <div class="jp-step-rail-dot" data-level="${cat.riskLevel}"></div>
+      <div class="jp-step-header-text">
+        <div class="jp-step-eyebrow">Section ${catIdx + 1} of ${total} · ${cat.fileCount} file${cat.fileCount !== 1 ? "s" : ""}</div>
+        <div class="jp-step-title-row">
+          <span class="jp-step-icon">${cat.icon}</span>
+          <span class="jp-step-title">${cat.label}</span>
+          <span class="jp-step-risk-pill" data-level="${cat.riskLevel}">${cat.riskLevel}</span>
+        </div>
+        <div class="jp-step-header-summary jp-md">${md(cat.summary)}</div>
       </div>
     `;
     el.appendChild(header);
 
-    // Body
-    const body = document.createElement("div");
-    body.className = "jp-step-body";
+    // ── 3-column body ─────────────────────────────────────────────
+    const cols = document.createElement("div");
+    cols.className = "jp-step-cols";
 
-    body.innerHTML = `<div class="jp-step-summary jp-md">${md(cat.summary)}</div>`;
+    // ── LEFT: file navigator ──────────────────────────────────────
+    const leftCol = document.createElement("div");
+    leftCol.className = "jp-step-col-files";
 
-    cat.snippets.forEach((s, snippetIdx) => {
-      body.appendChild(this.buildSnippet(s, catIdx, snippetIdx));
+    const filesLabel = document.createElement("div");
+    filesLabel.className = "jp-col-label";
+    filesLabel.textContent = "Files";
+    leftCol.appendChild(filesLabel);
+
+    // Group snippets by file
+    const byFile = new Map<string, { snippetIdx: number; lineStart: number }[]>();
+    cat.snippets.forEach((s, i) => {
+      if (!byFile.has(s.file)) byFile.set(s.file, []);
+      byFile.get(s.file)!.push({ snippetIdx: i, lineStart: s.lineStart });
     });
 
-    if (cat.reviewQuestions.length > 0) {
-      const qTitle = document.createElement("div");
-      qTitle.className = "jp-questions-label";
-      qTitle.textContent = "Review Questions";
-      body.appendChild(qTitle);
+    byFile.forEach((entries, file) => {
+      const fileName = file.split("/").pop() ?? file;
+      const fileGroup = document.createElement("div");
+      fileGroup.className = "jp-file-group";
+      fileGroup.innerHTML = `<div class="jp-file-group-name" title="${escapeHtml(file)}">${escapeHtml(fileName)}</div>`;
 
-      const qList = document.createElement("div");
-      qList.className = "jp-questions";
-      cat.reviewQuestions.forEach(q => {
-        const qEl = document.createElement("div");
-        qEl.className = "jp-question";
-        qEl.innerHTML = `<span class="jp-question-mark">?</span><span class="jp-md">${md(q)}</span>`;
-        qList.appendChild(qEl);
+      const rangeList = document.createElement("div");
+      rangeList.className = "jp-file-range-list";
+      entries.forEach(({ snippetIdx, lineStart }) => {
+        const s = cat.snippets[snippetIdx];
+        const btn = document.createElement("button");
+        btn.className = "jp-file-range-btn";
+        btn.dataset.snippetIdx = String(snippetIdx);
+        // Use explanation words as group label (first 4 words), line as range
+        const groupLabel = s.explanation?.split(" ").slice(0, 4).join(" ") || "Change";
+        const snippetRisk = s.riskLevel ?? cat.riskLevel;
+        btn.innerHTML = `
+          <div class="jp-file-range-group">${escapeHtml(groupLabel)}</div>
+          <div class="jp-file-range-footer">
+            <span class="jp-file-range-line">L${lineStart}</span>
+            <span class="jp-file-range-risk" data-level="${snippetRisk}"></span>
+          </div>
+        `;
+        rangeList.appendChild(btn);
       });
-      body.appendChild(qList);
-    }
+      fileGroup.appendChild(rangeList);
+      leftCol.appendChild(fileGroup);
+    });
 
-    // Section-level comment
-    const sectionCommentKey = `${catIdx}:section`;
-    const sectionCommentWrap = document.createElement("div");
-    sectionCommentWrap.className = "jp-section-comment-wrap";
-    const existingSectionComment = this.comments.get(sectionCommentKey);
-    if (existingSectionComment) {
-      sectionCommentWrap.appendChild(this.buildCommentNote(existingSectionComment, sectionCommentKey, sectionCommentWrap, true));
-    } else {
-      const sectionCommentBtn = document.createElement("button");
-      sectionCommentBtn.className = "jp-section-comment-btn";
-      sectionCommentBtn.textContent = "+ Add section note";
-      sectionCommentBtn.addEventListener("click", () => {
-        sectionCommentWrap.innerHTML = "";
-        sectionCommentWrap.appendChild(this.buildCommentForm(sectionCommentKey, sectionCommentWrap, true));
+    cols.appendChild(leftCol);
+
+    // ── CENTER: single focused diff + feedback below ──────────────
+    const centerCol = document.createElement("div");
+    centerCol.className = "jp-step-col-diffs";
+
+    // Active diff container — swapped when left nav is clicked
+    const diffFocus = document.createElement("div");
+    diffFocus.className = "jp-diff-focus";
+
+    const renderFocusedSnippet = (snippetIdx: number) => {
+      const s = cat.snippets[snippetIdx];
+      const key = `${catIdx}:${snippetIdx}`;
+      const hasBefore = s.before && s.before.trim().length > 0;
+      const hasAfter = s.after && s.after.trim().length > 0;
+
+      diffFocus.innerHTML = "";
+
+      // Diff card header
+      const cardHeader = document.createElement("div");
+      cardHeader.className = "jp-diff-card-header";
+      cardHeader.innerHTML = `
+        <div class="jp-diff-card-meta">
+          <div class="jp-diff-card-title">${escapeHtml(s.file.split("/").pop() || s.file)}</div>
+          <div class="jp-diff-card-file">${escapeHtml(s.file)} · L${s.lineStart}</div>
+        </div>
+        <span class="jp-step-risk-pill" data-level="${s.riskLevel ?? cat.riskLevel}">${s.riskLevel ?? cat.riskLevel}</span>
+      `;
+      diffFocus.appendChild(cardHeader);
+
+      // Explanation (once, in full)
+      if (s.explanation) {
+        const expEl = document.createElement("div");
+        expEl.className = "jp-diff-focus-summary";
+        expEl.textContent = s.explanation;
+        diffFocus.appendChild(expEl);
+      }
+
+      // Side-by-side diff
+      const diffGrid = document.createElement("div");
+      diffGrid.className = "jp-diff-card-diff";
+
+      const beforeCol = document.createElement("div");
+      beforeCol.className = `jp-diff-col jp-diff-col--before${!hasBefore ? " jp-diff-col--empty" : ""}`;
+      beforeCol.innerHTML = `
+        <div class="jp-diff-col-header">− Before</div>
+        <pre class="jp-diff-code">${hasBefore ? this.highlight(s.before, s.language) : "pure addition"}</pre>
+      `;
+      const afterCol = document.createElement("div");
+      afterCol.className = `jp-diff-col jp-diff-col--after${!hasAfter ? " jp-diff-col--empty" : ""}`;
+      afterCol.innerHTML = `
+        <div class="jp-diff-col-header">+ After</div>
+        <pre class="jp-diff-code">${hasAfter ? this.highlight(s.after, s.language) : "pure deletion"}</pre>
+      `;
+      diffGrid.appendChild(beforeCol);
+      diffGrid.appendChild(afterCol);
+      diffFocus.appendChild(diffGrid);
+
+      // Per-snippet note
+      const noteWrap = document.createElement("div");
+      noteWrap.className = "jp-diff-card-note-wrap";
+      const existingNote = this.comments.get(key);
+      if (existingNote) {
+        noteWrap.appendChild(this.buildCommentNote(existingNote, key, noteWrap, false));
+      } else {
+        const noteBtn = document.createElement("button");
+        noteBtn.className = "jp-snippet-comment-btn";
+        noteBtn.textContent = "+ Note";
+        noteBtn.addEventListener("click", () => {
+          if (noteWrap.querySelector(".jp-comment-box, .jp-comment-note")) return;
+          noteBtn.remove();
+          noteWrap.appendChild(this.buildCommentForm(key, noteWrap, false));
+        });
+        noteWrap.appendChild(noteBtn);
+      }
+      diffFocus.appendChild(noteWrap);
+
+      // Feedback questions anchored to this snippet
+      feedbackContainer.innerHTML = "";
+      const snippetQuestions = cat.reviewQuestions.filter(
+        q => q.file === s.file && (q.lineStart === undefined || q.lineStart === s.lineStart)
+      );
+      if (snippetQuestions.length > 0) {
+        const feedbackCard = document.createElement("div");
+        feedbackCard.className = "jp-feedback-card";
+
+        const criticalCount = (cat.riskLevel === "high" || cat.riskLevel === "critical") ? 1 : 0;
+        const feedbackHeader = document.createElement("div");
+        feedbackHeader.className = "jp-feedback-header";
+        feedbackHeader.innerHTML = `
+          <div class="jp-feedback-title">Feedback</div>
+          <div class="jp-feedback-meta">${snippetQuestions.length} question${snippetQuestions.length !== 1 ? "s" : ""} for this file</div>
+        `;
+        feedbackCard.appendChild(feedbackHeader);
+
+        const list = document.createElement("div");
+        list.className = "jp-feedback-list";
+        snippetQuestions.forEach((q, i) => {
+          const isCritical = i === 0 && criticalCount > 0;
+          const qCard = document.createElement("div");
+          qCard.className = "jp-finding-card" + (isCritical ? " jp-finding-card--critical" : "");
+          qCard.innerHTML = `
+            <div class="jp-finding-row">
+              <p class="jp-finding-text">${escapeHtml(q.text)}</p>
+              ${isCritical ? `<span class="jp-finding-action-label">Action</span>` : ""}
+            </div>
+            <div class="jp-finding-btns">
+              <button class="jp-finding-btn">Discuss</button>
+              <button class="jp-finding-btn">Resolve</button>
+              <button class="jp-finding-btn">Ignore</button>
+            </div>
+          `;
+          list.appendChild(qCard);
+        });
+        feedbackCard.appendChild(list);
+        feedbackContainer.appendChild(feedbackCard);
+      }
+
+      // Update active state in left col
+      leftCol.querySelectorAll<HTMLElement>(".jp-file-range-btn").forEach((b) => {
+        b.classList.toggle("jp-file-range-btn--active", parseInt(b.dataset.snippetIdx ?? "-1", 10) === snippetIdx);
       });
-      sectionCommentWrap.appendChild(sectionCommentBtn);
-    }
-    body.appendChild(sectionCommentWrap);
+    };
 
-    el.appendChild(body);
+    centerCol.appendChild(diffFocus);
 
-    // Footer nav
+    // Feedback card container — re-populated by renderFocusedSnippet
+    const feedbackContainer = document.createElement("div");
+    centerCol.appendChild(feedbackContainer);
+
+    cols.appendChild(centerCol);
+    el.appendChild(cols);
+
+    // ── Wire up left nav → swap focused diff ─────────────────────
+    // Render first snippet by default
+    renderFocusedSnippet(0);
+
+    leftCol.querySelectorAll<HTMLElement>(".jp-file-range-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = parseInt(btn.dataset.snippetIdx ?? "0", 10);
+        renderFocusedSnippet(idx);
+      });
+    });
+
+    // ── Footer nav ────────────────────────────────────────────────
     const nav = document.createElement("div");
     nav.className = "jp-step-nav";
 
@@ -422,7 +583,7 @@ export class JustPROverlay {
         this.currentStep = 0;
         this.renderScreen("overview");
       } else {
-        this.currentStep = catIdx; // catIdx is 0-based, step is 1-based
+        this.currentStep = catIdx;
         this.renderScreen("step");
       }
     });
@@ -439,7 +600,7 @@ export class JustPROverlay {
     } else {
       nextBtn.innerHTML = "Next →";
       nextBtn.addEventListener("click", () => {
-        this.currentStep = catIdx + 2; // next step (1-based)
+        this.currentStep = catIdx + 2;
         this.renderScreen("step");
       });
     }
@@ -592,6 +753,50 @@ export class JustPROverlay {
 
   // ── Snippet builder ────────────────────────────────────────
 
+  private static readonly LANG_ALIASES: Record<string, string> = {
+    // TypeScript
+    ts: "typescript", tsx: "typescript",
+    // JavaScript
+    js: "javascript", jsx: "javascript", mjs: "javascript", cjs: "javascript",
+    // Python
+    py: "python", py3: "python", python3: "python",
+    // Go
+    golang: "go",
+    // Ruby
+    rb: "ruby", rake: "ruby", gemfile: "ruby",
+    // Rust
+    rs: "rust",
+    // C / C++
+    "c++": "cpp", "c/c++": "cpp", cc: "cpp", cxx: "cpp", hpp: "cpp", hxx: "cpp",
+    h: "c",
+    // Kotlin
+    kt: "kotlin", kts: "kotlin",
+    // Swift
+    swiftui: "swift",
+    // Scala
+    sc: "scala",
+    // PHP
+    php3: "php", php4: "php", php5: "php", phtml: "php",
+    // Shell
+    sh: "bash", zsh: "bash", ksh: "bash", fish: "bash", shell: "bash",
+    // YAML
+    yml: "yaml",
+    // Protobuf
+    proto: "protobuf", proto3: "protobuf",
+    // Markup
+    svg: "xml", xhtml: "xml", htm: "html",
+  };
+
+  private highlight(code: string, lang: string): string {
+    if (!code || !code.trim()) return "";
+    try {
+      const normalized = JustPROverlay.LANG_ALIASES[lang] ?? lang;
+      const supported = hljs.getLanguage(normalized) ? normalized : "plaintext";
+      if (supported === "plaintext") return escapeHtml(code);
+      return hljs.highlight(code, { language: supported }).value;
+    } catch { return escapeHtml(code); }
+  }
+
   private buildSnippet(s: CodeSnippet, catIdx: number, snippetIdx: number): HTMLElement {
     const key = `${catIdx}:${snippetIdx}`;
     const wrap = document.createElement("div");
@@ -630,21 +835,12 @@ export class JustPROverlay {
     const diff = document.createElement("div");
     diff.className = "jp-diff";
 
-    const highlight = (code: string, lang: string): string => {
-      if (!code || !code.trim()) return "";
-      try {
-        const supported = hljs.getLanguage(lang) ? lang : "plaintext";
-        if (supported === "plaintext") return escapeHtml(code);
-        return hljs.highlight(code, { language: supported }).value;
-      } catch { return escapeHtml(code); }
-    };
-
     // Before column
     const beforeCol = document.createElement("div");
     beforeCol.className = `jp-diff-col jp-diff-col--before${!hasBefore ? " jp-diff-col--empty" : ""}`;
     beforeCol.innerHTML = `
       <div class="jp-diff-col-header">− Before</div>
-      <pre class="jp-diff-code">${hasBefore ? highlight(s.before, s.language) : "pure addition"}</pre>
+      <pre class="jp-diff-code">${hasBefore ? this.highlight(s.before, s.language) : "pure addition"}</pre>
     `;
     diff.appendChild(beforeCol);
 
@@ -653,7 +849,7 @@ export class JustPROverlay {
     afterCol.className = `jp-diff-col jp-diff-col--after${!hasAfter ? " jp-diff-col--empty" : ""}`;
     afterCol.innerHTML = `
       <div class="jp-diff-col-header">+ After</div>
-      <pre class="jp-diff-code">${hasAfter ? highlight(s.after, s.language) : "pure deletion"}</pre>
+      <pre class="jp-diff-code">${hasAfter ? this.highlight(s.after, s.language) : "pure deletion"}</pre>
     `;
     diff.appendChild(afterCol);
 
@@ -676,6 +872,10 @@ export class JustPROverlay {
     textarea.className = "jp-comment-textarea";
     textarea.placeholder = isSection ? "Add a note for this section..." : "Add a note for this snippet...";
     textarea.value = this.comments.get(key) ?? "";
+    // Prevent host-page shortcut handlers (e.g. GitHub's "s" key) from firing
+    // while the user is typing inside the shadow DOM textarea.
+    textarea.addEventListener("keydown", (e) => e.stopPropagation());
+    textarea.addEventListener("keypress", (e) => e.stopPropagation());
 
     const actions = document.createElement("div");
     actions.className = "jp-comment-actions";

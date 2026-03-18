@@ -1,5 +1,11 @@
 export type RiskLevel = "low" | "medium" | "high" | "critical";
 
+export interface ReviewQuestion {
+  text: string;
+  file?: string;       // file path this question is anchored to
+  lineStart?: number;  // line number within that file
+}
+
 export interface PRCategory {
   id: string;
   icon: string;
@@ -7,7 +13,7 @@ export interface PRCategory {
   summary: string;
   snippets: CodeSnippet[];
   riskLevel: RiskLevel;
-  reviewQuestions: string[];
+  reviewQuestions: ReviewQuestion[];
   fileCount: number;
 }
 
@@ -18,6 +24,7 @@ export interface CodeSnippet {
   after: string;        // added lines (shown in right/green column)
   lineStart: number;
   explanation: string;  // why this change matters
+  riskLevel: RiskLevel; // per-snippet criticality
 }
 
 export interface PRAnalysis {

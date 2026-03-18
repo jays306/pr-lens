@@ -16,7 +16,10 @@ writeFileSync(cssModule, `export const overlayCSS = ${JSON.stringify(css)};\n`);
 
 // 2. Bundle TypeScript content script (which imports the generated CSS module)
 const result = await Bun.build({
-  entrypoints: [join(import.meta.dir, "src/content.ts")],
+  entrypoints: [
+    join(import.meta.dir, "src/content.ts"),
+    join(import.meta.dir, "src/testbed.ts"),
+  ],
   outdir,
   target: "browser",
   minify: process.env.NODE_ENV === "production",
@@ -32,3 +35,4 @@ if (!result.success) {
 
 console.log("✓ Built extension to dist/");
 console.log("  → dist/content.js (CSS embedded)");
+console.log("  → dist/testbed.js + dist/testbed.html");

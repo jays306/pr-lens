@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/just-pr/backend/analysis"
+	"github.com/just-pr/backend/cache"
 	"github.com/just-pr/backend/github"
 )
 
@@ -16,7 +17,7 @@ type analyzeRequest struct {
 }
 
 // Analyze returns an http.HandlerFunc that streams PR analysis via SSE.
-func Analyze(ghClient *github.Client, analyzer analysis.Analyzer) http.HandlerFunc {
+func Analyze(ghClient *github.Client, analyzer analysis.Analyzer, store *cache.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -112,16 +113,32 @@ func Analyze(ghClient *github.Client, analyzer analysis.Analyzer) http.HandlerFu
 			return nil
 		}
 
+		cacheKey := cache.Key(dr.diff)
+		if cached, ok := store.Get(cacheKey); ok {
+			store.LogStats(cacheKey, true)
+			if err := cache.Replay(cached, emit); err != nil {
+				log.Printf("[analyze] cache replay error: %v", err)
+			}
+			_ = emit(analysis.StreamEvent{Type: "done", Data: map[string]any{}})
+			log.Printf("[analyze] done (cache hit) total=%s", time.Since(reqStart).Round(time.Millisecond))
+			return
+		}
+		store.LogStats(cacheKey, false)
+
+		collected, collectingEmit := cache.Collect(emit)
+
 		aiStart := time.Now()
 		var analyzeErr error
 		if full, ok := analyzer.(analysis.FullAnalyzer); ok {
-			analyzeErr = full.AnalyzePRFull(r.Context(), dr.diff, fr.prFiles, fr.contents, emit)
+			analyzeErr = full.AnalyzePRFull(r.Context(), dr.diff, fr.prFiles, fr.contents, collectingEmit)
 		} else {
-			analyzeErr = analyzer.AnalyzePR(r.Context(), analysis.UserPrompt(dr.diff, fr.contents), emit)
+			analyzeErr = analyzer.AnalyzePR(r.Context(), analysis.UserPrompt(dr.diff, fr.contents), collectingEmit)
 		}
 		if analyzeErr != nil {
 			log.Printf("[analyze] error: %v", analyzeErr)
 			_ = emit(analysis.StreamEvent{Type: "error", Data: map[string]any{"message": analyzeErr.Error()}})
+		} else {
+			store.Set(cacheKey, *collected)
 		}
 		log.Printf("[analyze] done total=%s ai=%s", time.Since(reqStart).Round(time.Millisecond), time.Since(aiStart).Round(time.Millisecond))
 	}

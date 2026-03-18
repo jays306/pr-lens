@@ -2316,6 +2316,29 @@
   border-bottom-color: #a7f3d0;
 }
 
+.jp-diff-code-wrap {
+  display: flex;
+  overflow: visible;
+}
+
+.jp-diff-gutter {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 10px 8px 10px 10px;
+  color: #94a3b8;
+  text-align: right;
+  user-select: none;
+  flex-shrink: 0;
+  border-right: 1px solid #e2e8f0;
+  background: inherit;
+  white-space: pre;
+  min-width: 36px;
+}
+
+.jp-diff-col--before .jp-diff-gutter { background: #fff5f5; border-right-color: #fecaca; }
+.jp-diff-col--after  .jp-diff-gutter { background: #f0fdf4; border-right-color: #a7f3d0; }
+
 .jp-diff-code {
   height: auto;
   font-size: 12px;
@@ -2323,8 +2346,11 @@
   background: #ffffff;
   color: #1e293b;
   min-height: 0;
-  overflow-x: auto;
-  overflow-y: visible;
+  overflow: visible;
+  flex: 1;
+  padding: 10px;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .jp-feedback-container {

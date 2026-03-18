@@ -4,114 +4,168 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>JUST-PR</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Syne:wght@700;800&display=swap" rel="stylesheet" />
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      width: 280px;
+      width: 300px;
       background: #ffffff;
       color: #1c2128;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      font-size: 13px;
       border: 1px solid #d0d7de;
     }
 
     .header {
-      padding: 16px;
-      border-bottom: 1px solid #d0d7de;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
       background: #f6f8fa;
-      position: relative;
-    }
-
-    .header::after {
-      content: '';
-      position: absolute;
-      bottom: 0; left: 0; right: 0;
-      height: 1px;
-      background: linear-gradient(to right, #b45309, transparent);
-      opacity: 0.4;
+      border-bottom: 1px solid #d0d7de;
     }
 
     .logo {
-      font-family: 'Syne', sans-serif;
-      font-size: 18px;
-      font-weight: 800;
-      letter-spacing: 0.15em;
-      color: #b45309;
+      font-size: 14px;
+      font-weight: 700;
+      color: #1c2128;
+      letter-spacing: 0.02em;
     }
+
+    .logo span { color: #b45309; }
 
     .tagline {
-      font-size: 9px;
-      letter-spacing: 0.2em;
+      font-size: 10px;
       color: #8c959f;
+      letter-spacing: 0.04em;
+    }
+
+    .section {
+      padding: 12px 14px;
+      border-bottom: 1px solid #d0d7de;
+    }
+
+    .section:last-child { border-bottom: none; }
+
+    .section-label {
+      font-size: 11px;
+      font-weight: 600;
       text-transform: uppercase;
-      margin-top: 4px;
+      letter-spacing: 0.06em;
+      color: #57606a;
+      margin-bottom: 8px;
     }
 
-    .body {
-      padding: 16px;
-    }
-
+    /* Status */
     .status-row {
       display: flex;
       align-items: center;
       gap: 8px;
-      font-size: 10px;
-      color: #424a53;
-      padding: 10px 0;
-      border-bottom: 1px solid #d0d7de;
+      font-size: 12px;
+      color: #57606a;
     }
 
     .status-dot {
-      width: 6px;
-      height: 6px;
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
-      background: #16a34a;
-      box-shadow: 0 0 6px #16a34a;
+      background: #1a7f37;
+      flex-shrink: 0;
     }
 
-    .status-dot.offline {
-      background: #8c959f;
-      box-shadow: none;
+    .status-dot.offline { background: #8c959f; }
+    .status-dot.checking { background: #d1a317; }
+
+    /* URL field */
+    .input-wrap {
+      display: flex;
+      gap: 6px;
     }
 
-    .info {
-      margin-top: 14px;
-      font-size: 10px;
-      color: #8c959f;
-      line-height: 1.7;
-    }
-
-    .info strong {
-      color: #424a53;
-    }
-
-    .kbd {
-      display: inline-block;
-      background: #eef1f5;
+    input[type="url"] {
+      flex: 1;
       border: 1px solid #d0d7de;
-      padding: 1px 5px;
-      font-size: 9px;
-      color: #b45309;
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+      color: #1c2128;
+      background: #ffffff;
+      outline: none;
+      transition: border-color 0.15s;
     }
+
+    input[type="url"]:focus { border-color: #0969da; }
+    input[type="url"].invalid { border-color: #cf222e; }
+
+    .save-btn {
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      background: #f6f8fa;
+      color: #1c2128;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 6px 12px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.12s, border-color 0.12s;
+    }
+
+    .save-btn:hover { background: #eef1f5; border-color: #b1b9c3; }
+
+    .save-btn.saved {
+      background: #dafbe1;
+      border-color: #9be9a8;
+      color: #1a7f37;
+    }
+
+    .hint {
+      margin-top: 6px;
+      font-size: 11px;
+      color: #8c959f;
+    }
+
+    /* Info */
+    .info {
+      font-size: 12px;
+      color: #57606a;
+      line-height: 1.6;
+    }
+
+    .info strong { color: #1c2128; font-weight: 600; }
   </style>
 </head>
 <body>
   <div class="header">
-    <div class="logo">JUST·PR</div>
-    <div class="tagline">AI-Native PR Review System</div>
+    <div>
+      <div class="logo">JUST<span>·</span>PR</div>
+    </div>
+    <div class="tagline">AI-Native PR Review</div>
   </div>
-  <div class="body">
+
+  <div class="section">
+    <div class="section-label">Backend Status</div>
     <div class="status-row">
-      <div class="status-dot" id="statusDot"></div>
-      <span id="statusText">Checking backend...</span>
-    </div>
-    <div class="info">
-      Navigate to any <strong>Pull Request</strong> page on GitHub, GitLab, or Bitbucket.<br /><br />
-      The overlay will appear automatically. Click <span class="kbd">JUST·PR</span> on the right edge to open it.
+      <div class="status-dot checking" id="statusDot"></div>
+      <span id="statusText">Checking…</span>
     </div>
   </div>
+
+  <div class="section">
+    <div class="section-label">Backend URL</div>
+    <div class="input-wrap">
+      <input type="url" id="urlInput" placeholder="http://localhost:8080" spellcheck="false" />
+      <button class="save-btn" id="saveBtn">Save</button>
+    </div>
+    <div class="hint" id="hint">Used for all analysis and review requests.</div>
+  </div>
+
+  <div class="section">
+    <div class="info">
+      Navigate to any <strong>Pull Request</strong> on GitHub, GitLab, or Bitbucket — the overlay opens automatically.
+    </div>
+  </div>
+
   <script src="popup.js"></script>
 </body>
 </html>

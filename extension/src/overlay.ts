@@ -46,7 +46,8 @@ hljs.registerLanguage("css", css);
 hljs.registerLanguage("json", json);
 hljs.registerLanguage("yaml", yaml);
 
-const BACKEND_URL = "http://localhost:8080";
+const DEFAULT_BACKEND_URL = "http://localhost:8080";
+let BACKEND_URL = DEFAULT_BACKEND_URL;
 
 interface AnalysisState {
   riskScore: number;
@@ -67,6 +68,10 @@ interface FileTreeNode {
   isFile: boolean;
   fullPath?: string;
   children: Map<string, FileTreeNode>;
+}
+
+export function setBackendUrl(url: string): void {
+  BACKEND_URL = url.replace(/\/$/, "") || DEFAULT_BACKEND_URL;
 }
 
 export class JustPROverlay {
@@ -607,18 +612,48 @@ export class JustPROverlay {
       const diffGrid = document.createElement("div");
       diffGrid.className = "jp-diff-card-diff";
 
+      const makeGutter = (code: string, startLine: number): string => {
+        const count = code.split("\n").length;
+        return Array.from({ length: count }, (_, i) =>
+          `<span>${startLine + i}</span>`
+        ).join("\n");
+      };
+
       const beforeCol = document.createElement("div");
       beforeCol.className = `jp-diff-col jp-diff-col--before${!hasBefore ? " jp-diff-col--empty" : ""}`;
-      beforeCol.innerHTML = `
-        <div class="jp-diff-col-header">− Before</div>
-        <pre class="jp-diff-code">${hasBefore ? this.highlight(s.before, s.language) : "pure addition"}</pre>
-      `;
+      if (hasBefore) {
+        beforeCol.innerHTML = `<div class="jp-diff-col-header">− Before</div>`;
+        const wrap = document.createElement("div");
+        wrap.className = "jp-diff-code-wrap";
+        wrap.innerHTML = `
+          <pre class="jp-diff-gutter">${makeGutter(s.before, s.lineStart)}</pre>
+          <pre class="jp-diff-code">${this.highlight(s.before, s.language)}</pre>
+        `;
+        beforeCol.appendChild(wrap);
+      } else {
+        beforeCol.innerHTML = `
+          <div class="jp-diff-col-header">− Before</div>
+          <pre class="jp-diff-code">pure addition</pre>
+        `;
+      }
+
       const afterCol = document.createElement("div");
       afterCol.className = `jp-diff-col jp-diff-col--after${!hasAfter ? " jp-diff-col--empty" : ""}`;
-      afterCol.innerHTML = `
-        <div class="jp-diff-col-header">+ After</div>
-        <pre class="jp-diff-code">${hasAfter ? this.highlight(s.after, s.language) : "pure deletion"}</pre>
-      `;
+      if (hasAfter) {
+        afterCol.innerHTML = `<div class="jp-diff-col-header">+ After</div>`;
+        const wrap = document.createElement("div");
+        wrap.className = "jp-diff-code-wrap";
+        wrap.innerHTML = `
+          <pre class="jp-diff-gutter">${makeGutter(s.after, s.lineStart)}</pre>
+          <pre class="jp-diff-code">${this.highlight(s.after, s.language)}</pre>
+        `;
+        afterCol.appendChild(wrap);
+      } else {
+        afterCol.innerHTML = `
+          <div class="jp-diff-col-header">+ After</div>
+          <pre class="jp-diff-code">pure deletion</pre>
+        `;
+      }
       diffGrid.appendChild(beforeCol);
       diffGrid.appendChild(afterCol);
       diffFocus.appendChild(diffGrid);

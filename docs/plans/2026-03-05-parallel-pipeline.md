@@ -366,7 +366,7 @@ Open `backend/ai/prompt.go` and append these two functions after `UserPrompt`:
 // SpecialistSystemPrompt returns a system prompt for a single-category specialist agent.
 // The specialist emits only "category" and "done" events.
 func SpecialistSystemPrompt(categoryID string) string {
-	return fmt.Sprintf(`You are JUST-PR, a senior staff engineer performing a focused code review.
+	return fmt.Sprintf(`You are PR-LENS, a senior staff engineer performing a focused code review.
 
 You are analyzing ONLY the "%s" category of a pull request diff.
 
@@ -394,7 +394,7 @@ Rules:
 // SummarySystemPrompt returns a system prompt for the risk/summary/systems call.
 // This call receives a condensed view of the diff and produces risk, summary, and systems events.
 func SummarySystemPrompt() string {
-	return `You are JUST-PR, a senior staff engineer performing a high-level risk assessment of a pull request.
+	return `You are PR-LENS, a senior staff engineer performing a high-level risk assessment of a pull request.
 
 # Output Format
 
@@ -899,7 +899,7 @@ func runRecommendationCall(ctx context.Context, apiKey, model string, categoryEv
 		}
 	}
 
-	sysPrompt := `You are JUST-PR. Based on category analysis provided, emit exactly one JSON line:
+	sysPrompt := `You are PR-LENS. Based on category analysis provided, emit exactly one JSON line:
 {"type":"recommendation","data":{"action":"approve|request_changes|needs_review","reason":"<markdown: 2-3 sentences>"}}
 Then emit: {"type":"done","data":{}}`
 

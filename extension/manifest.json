@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "JUST-PR",
+  "name": "PR-LENS",
   "version": "0.1.0",
   "description": "AI-native PR review overlay. System-level reasoning for every pull request.",
   "permissions": ["activeTab", "scripting", "storage"],
@@ -21,7 +21,7 @@
     }
   ],
   "action": {
-    "default_title": "JUST-PR",
+    "default_title": "PR-LENS",
     "default_popup": "public/popup.html"
   },
   "web_accessible_resources": [

@@ -207,7 +207,7 @@ func runRecommendationCall(ctx context.Context, a Analyzer, categoryEvents []Str
 		}
 	}
 
-	sysPrompt := `You are JUST-PR. Based on the category analysis provided, emit exactly one JSON line:
+	sysPrompt := `You are PR-LENS. Based on the category analysis provided, emit exactly one JSON line:
 {"type":"recommendation","data":{"action":"approve|request_changes|needs_review","reason":"<markdown: 2-3 sentences>"}}
 Then emit: {"type":"done","data":{}}`
 

@@ -1,5 +1,5 @@
 /**
- * Bun build script for the JUST-PR Chrome extension.
+ * Bun build script for the PR-LENS Chrome extension.
  * Embeds the CSS as a string into content.js so it can be injected
  * synchronously into the Shadow DOM — no async loading, no timing issues.
  */

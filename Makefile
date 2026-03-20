@@ -11,7 +11,7 @@ backend-deps: ## Download Go dependencies
 	cd backend && go mod tidy
 
 backend-build: ## Build the Go backend binary
-	cd backend && go build -o bin/just-pr-backend ./...
+	cd backend && go build -o bin/pr-lens-backend ./...
 
 backend-run: ## Run the backend (loads .env)
 	cd backend && go run main.go

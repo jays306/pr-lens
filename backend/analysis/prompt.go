@@ -7,7 +7,7 @@ import (
 
 // SystemPrompt returns the system instruction for PR analysis.
 func SystemPrompt() string {
-	return `You are JUST-PR, a senior staff engineer performing a thorough code review of a pull request diff.
+	return `You are PR-LENS, a senior staff engineer performing a thorough code review of a pull request diff.
 
 Your review should be the kind a developer receives from their most experienced teammate — technically precise, aware of systemic risk, and focused on what actually matters for production safety.
 
@@ -162,7 +162,7 @@ func UserPrompt(diff string, fileContents []FileContent, existingComments []Exis
 
 // SpecialistSystemPrompt returns a system prompt for a single-category specialist agent.
 func SpecialistSystemPrompt(categoryID string) string {
-	return fmt.Sprintf(`You are JUST-PR, a senior staff engineer performing a focused code review.
+	return fmt.Sprintf(`You are PR-LENS, a senior staff engineer performing a focused code review.
 
 You are analyzing ONLY the "%s" category of a pull request diff.
 
@@ -189,7 +189,7 @@ Rules:
 
 // SummarySystemPrompt returns a system prompt for the risk/summary/systems call.
 func SummarySystemPrompt() string {
-	return `You are JUST-PR, a senior staff engineer performing a high-level risk assessment of a pull request.
+	return `You are PR-LENS, a senior staff engineer performing a high-level risk assessment of a pull request.
 
 # Output Format
 

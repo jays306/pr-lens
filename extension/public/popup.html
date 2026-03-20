@@ -1,171 +1,207 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>JUST-PR</title>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PR-LENS</title>
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
 
-    body {
-      width: 300px;
-      background: #ffffff;
-      color: #1c2128;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-      font-size: 13px;
-      border: 1px solid #d0d7de;
-    }
+      body {
+        width: 300px;
+        background: #ffffff;
+        color: #1c2128;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
+          sans-serif;
+        font-size: 13px;
+        border: 1px solid #d0d7de;
+      }
 
-    .header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 12px 14px;
-      background: #f6f8fa;
-      border-bottom: 1px solid #d0d7de;
-    }
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 14px;
+        background: #f6f8fa;
+        border-bottom: 1px solid #d0d7de;
+      }
 
-    .logo {
-      font-size: 14px;
-      font-weight: 700;
-      color: #1c2128;
-      letter-spacing: 0.02em;
-    }
+      .logo {
+        font-size: 14px;
+        font-weight: 700;
+        color: #1c2128;
+        letter-spacing: 0.02em;
+      }
 
-    .logo span { color: #b45309; }
+      .logo span {
+        color: #b45309;
+      }
 
-    .tagline {
-      font-size: 10px;
-      color: #8c959f;
-      letter-spacing: 0.04em;
-    }
+      .tagline {
+        font-size: 10px;
+        color: #8c959f;
+        letter-spacing: 0.04em;
+      }
 
-    .section {
-      padding: 12px 14px;
-      border-bottom: 1px solid #d0d7de;
-    }
+      .section {
+        padding: 12px 14px;
+        border-bottom: 1px solid #d0d7de;
+      }
 
-    .section:last-child { border-bottom: none; }
+      .section:last-child {
+        border-bottom: none;
+      }
 
-    .section-label {
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      color: #57606a;
-      margin-bottom: 8px;
-    }
+      .section-label {
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #57606a;
+        margin-bottom: 8px;
+      }
 
-    /* Status */
-    .status-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 12px;
-      color: #57606a;
-    }
+      /* Status */
+      .status-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        color: #57606a;
+      }
 
-    .status-dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: #1a7f37;
-      flex-shrink: 0;
-    }
+      .status-dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #1a7f37;
+        flex-shrink: 0;
+      }
 
-    .status-dot.offline { background: #8c959f; }
-    .status-dot.checking { background: #d1a317; }
+      .status-dot.offline {
+        background: #8c959f;
+      }
+      .status-dot.checking {
+        background: #d1a317;
+      }
 
-    /* URL field */
-    .input-wrap {
-      display: flex;
-      gap: 6px;
-    }
+      /* URL field */
+      .input-wrap {
+        display: flex;
+        gap: 6px;
+      }
 
-    input[type="url"] {
-      flex: 1;
-      border: 1px solid #d0d7de;
-      border-radius: 6px;
-      padding: 6px 10px;
-      font-size: 12px;
-      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-      color: #1c2128;
-      background: #ffffff;
-      outline: none;
-      transition: border-color 0.15s;
-    }
+      input[type="url"] {
+        flex: 1;
+        border: 1px solid #d0d7de;
+        border-radius: 6px;
+        padding: 6px 10px;
+        font-size: 12px;
+        font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+        color: #1c2128;
+        background: #ffffff;
+        outline: none;
+        transition: border-color 0.15s;
+      }
 
-    input[type="url"]:focus { border-color: #0969da; }
-    input[type="url"].invalid { border-color: #cf222e; }
+      input[type="url"]:focus {
+        border-color: #0969da;
+      }
+      input[type="url"].invalid {
+        border-color: #cf222e;
+      }
 
-    .save-btn {
-      border: 1px solid #d0d7de;
-      border-radius: 6px;
-      background: #f6f8fa;
-      color: #1c2128;
-      font-size: 12px;
-      font-weight: 500;
-      padding: 6px 12px;
-      cursor: pointer;
-      white-space: nowrap;
-      transition: background 0.12s, border-color 0.12s;
-    }
+      .save-btn {
+        border: 1px solid #d0d7de;
+        border-radius: 6px;
+        background: #f6f8fa;
+        color: #1c2128;
+        font-size: 12px;
+        font-weight: 500;
+        padding: 6px 12px;
+        cursor: pointer;
+        white-space: nowrap;
+        transition:
+          background 0.12s,
+          border-color 0.12s;
+      }
 
-    .save-btn:hover { background: #eef1f5; border-color: #b1b9c3; }
+      .save-btn:hover {
+        background: #eef1f5;
+        border-color: #b1b9c3;
+      }
 
-    .save-btn.saved {
-      background: #dafbe1;
-      border-color: #9be9a8;
-      color: #1a7f37;
-    }
+      .save-btn.saved {
+        background: #dafbe1;
+        border-color: #9be9a8;
+        color: #1a7f37;
+      }
 
-    .hint {
-      margin-top: 6px;
-      font-size: 11px;
-      color: #8c959f;
-    }
+      .hint {
+        margin-top: 6px;
+        font-size: 11px;
+        color: #8c959f;
+      }
 
-    /* Info */
-    .info {
-      font-size: 12px;
-      color: #57606a;
-      line-height: 1.6;
-    }
+      /* Info */
+      .info {
+        font-size: 12px;
+        color: #57606a;
+        line-height: 1.6;
+      }
 
-    .info strong { color: #1c2128; font-weight: 600; }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <div>
-      <div class="logo">JUST<span>·</span>PR</div>
+      .info strong {
+        color: #1c2128;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <div>
+        <div class="logo">JUST<span>·</span>PR</div>
+      </div>
+      <div class="tagline">AI-Native PR Review</div>
     </div>
-    <div class="tagline">AI-Native PR Review</div>
-  </div>
 
-  <div class="section">
-    <div class="section-label">Backend Status</div>
-    <div class="status-row">
-      <div class="status-dot checking" id="statusDot"></div>
-      <span id="statusText">Checking…</span>
+    <div class="section">
+      <div class="section-label">Backend Status</div>
+      <div class="status-row">
+        <div class="status-dot checking" id="statusDot"></div>
+        <span id="statusText">Checking…</span>
+      </div>
     </div>
-  </div>
 
-  <div class="section">
-    <div class="section-label">Backend URL</div>
-    <div class="input-wrap">
-      <input type="url" id="urlInput" placeholder="http://localhost:8080" spellcheck="false" />
-      <button class="save-btn" id="saveBtn">Save</button>
+    <div class="section">
+      <div class="section-label">Backend URL</div>
+      <div class="input-wrap">
+        <input
+          type="url"
+          id="urlInput"
+          placeholder="http://localhost:8080"
+          spellcheck="false"
+        />
+        <button class="save-btn" id="saveBtn">Save</button>
+      </div>
+      <div class="hint" id="hint">
+        Used for all analysis and review requests.
+      </div>
     </div>
-    <div class="hint" id="hint">Used for all analysis and review requests.</div>
-  </div>
 
-  <div class="section">
-    <div class="info">
-      Navigate to any <strong>Pull Request</strong> on GitHub, GitLab, or Bitbucket — the overlay opens automatically.
+    <div class="section">
+      <div class="info">
+        Navigate to any <strong>Pull Request</strong> on GitHub, GitLab, or
+        Bitbucket — the overlay opens automatically.
+      </div>
     </div>
-  </div>
 
-  <script src="popup.js"></script>
-</body>
+    <script src="popup.js"></script>
+  </body>
 </html>

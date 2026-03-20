@@ -105,14 +105,14 @@ export class JustPROverlay {
   private feedbackActions: Map<string, "discuss" | "resolved" | "ignored"> = new Map();
 
   // Track whether this session already submitted (keyed by PR URL in sessionStorage)
-  private get submittedKey() { return `just-pr:submitted:${this.prUrl}`; }
+  private get submittedKey() { return `pr-lens:submitted:${this.prUrl}`; }
 
   constructor(prUrl: string) {
     this.prUrl = prUrl;
 
     // Mount inside Shadow DOM so GitHub's CSS cannot leak in
     this.host = document.createElement("div");
-    this.host.id = "just-pr-host";
+    this.host.id = "pr-lens-host";
     this.host.style.cssText = "all:initial;position:fixed;top:0;left:0;z-index:2147483647;pointer-events:none;";
     this.shadow = this.host.attachShadow({ mode: "open" });
 
@@ -139,7 +139,7 @@ export class JustPROverlay {
 
   private buildToggle(): HTMLElement {
     const btn = document.createElement("button");
-    btn.id = "just-pr-toggle";
+    btn.id = "pr-lens-toggle";
     btn.textContent = "JUST·PR";
     btn.style.pointerEvents = "auto";
     btn.addEventListener("click", () => this.togglePanel());
@@ -148,12 +148,12 @@ export class JustPROverlay {
 
   private buildPanel(): HTMLElement {
     const panel = document.createElement("div");
-    panel.id = "just-pr-panel";
+    panel.id = "pr-lens-panel";
     panel.style.pointerEvents = "auto";
 
     // Resize handle
     const handle = document.createElement("div");
-    handle.id = "just-pr-resize-handle";
+    handle.id = "pr-lens-resize-handle";
     panel.appendChild(handle);
     this.initResize(handle, panel);
 
@@ -161,7 +161,7 @@ export class JustPROverlay {
     const header = document.createElement("div");
     header.className = "jp-header";
     header.innerHTML = `
-      <div class="jp-logo">Just-PR <span class="jp-logo-sub">AI Review</span></div>
+      <div class="jp-logo">PR-LENS <span class="jp-logo-sub">AI Review</span></div>
       <div class="jp-header-right">
         <button class="jp-btn-icon jp-btn-restart" title="Start over">↺</button>
         <button class="jp-btn-icon jp-btn-close" title="Close">✕</button>
@@ -384,7 +384,7 @@ export class JustPROverlay {
     topBar.className = "jp-step-topbar";
     topBar.innerHTML = `
       <div class="jp-step-topbar-left">
-        <div class="jp-step-topbar-title">Just-PR · AI Review</div>
+        <div class="jp-step-topbar-title">PR-LENS · AI Review</div>
         <div class="jp-step-topbar-subtitle">${escapeHtml(cat.label)}</div>
       </div>
       <div class="jp-step-topbar-actions">

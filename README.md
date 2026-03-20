@@ -64,7 +64,7 @@ Instead of scrolling through diffs file-by-file, PR Lens organizes changes by sy
 ## Project Structure
 
 ```
-just-pr/
+pr-lens/
 ├── backend/            # Go HTTP server
 │   ├── analysis/       # Pipeline, triage, specialist, prompt logic
 │   ├── cache/          # In-memory diff-keyed result cache

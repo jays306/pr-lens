@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "just-pr-extension",
+      "name": "pr-lens-extension",
       "dependencies": {
         "highlight.js": "^11.11.1",
         "marked": "^17.0.4",

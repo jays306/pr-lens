@@ -1,4 +1,4 @@
-/* JUST-PR — Editorial Command Center */
+/* PR-LENS — Editorial Command Center */
 
 /* ─── Reset ─────────────────────────────────────────────────── */
 :host {
@@ -77,7 +77,7 @@
 }
 
 /* ─── Toggle ────────────────────────────────────────────────── */
-#just-pr-toggle {
+#pr-lens-toggle {
   position: fixed;
   top: 72px;
   right: 0;
@@ -108,7 +108,7 @@
   box-shadow: -3px 0 12px rgba(0,0,0,0.4);
 }
 
-#just-pr-toggle::before {
+#pr-lens-toggle::before {
   content: '';
   position: absolute;
   top: 0; left: 0; bottom: 0;
@@ -119,22 +119,22 @@
   transition: opacity var(--t);
 }
 
-#just-pr-toggle:hover {
+#pr-lens-toggle:hover {
   color: var(--text-primary);
   background: var(--bg-raised);
   border-color: var(--border-mid);
 }
 
-#just-pr-toggle:hover::before,
-#just-pr-toggle.jp-active::before { opacity: 1; }
+#pr-lens-toggle:hover::before,
+#pr-lens-toggle.jp-active::before { opacity: 1; }
 
-#just-pr-toggle.jp-active {
+#pr-lens-toggle.jp-active {
   color: var(--copper);
   background: var(--bg-surface);
 }
 
 /* ─── Panel ─────────────────────────────────────────────────── */
-#just-pr-panel {
+#pr-lens-panel {
   position: fixed;
   top: 0; right: 0;
   width: 100vw;
@@ -153,12 +153,12 @@
   transition: transform var(--t-slow);
 }
 
-#just-pr-panel.jp-open {
+#pr-lens-panel.jp-open {
   transform: translateX(0);
 }
 
 /* ─── Resize Handle ─────────────────────────────────────────── */
-#just-pr-resize-handle {
+#pr-lens-resize-handle {
   position: absolute;
   left: 0; top: 0; bottom: 0;
   width: 4px;
@@ -167,8 +167,8 @@
   transition: background var(--t);
 }
 
-#just-pr-resize-handle:hover,
-#just-pr-resize-handle.jp-resizing {
+#pr-lens-resize-handle:hover,
+#pr-lens-resize-handle.jp-resizing {
   background: var(--copper);
   opacity: 0.5;
 }
@@ -1930,76 +1930,76 @@
 }
 
 /* ─── GitHub Typography Overrides ───────────────────────────── */
-#just-pr-toggle,
-#just-pr-panel {
+#pr-lens-toggle,
+#pr-lens-panel {
   font-family: var(--ui);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
-#just-pr-panel * {
+#pr-lens-panel * {
   font-family: inherit;
   font-size: 14px;
   line-height: 1.5;
 }
 
-#just-pr-panel .jp-logo,
-#just-pr-panel .jp-logo-sub,
-#just-pr-panel .jp-idle-heading,
-#just-pr-panel .jp-step-title,
-#just-pr-panel .jp-decision-title,
-#just-pr-panel .jp-loading-pct,
-#just-pr-panel .jp-risk-score {
+#pr-lens-panel .jp-logo,
+#pr-lens-panel .jp-logo-sub,
+#pr-lens-panel .jp-idle-heading,
+#pr-lens-panel .jp-step-title,
+#pr-lens-panel .jp-decision-title,
+#pr-lens-panel .jp-loading-pct,
+#pr-lens-panel .jp-risk-score {
   font-style: normal;
 }
 
-#just-pr-panel .jp-logo { font-size: 16px; font-weight: 600; }
-#just-pr-panel .jp-logo-sub { font-size: 12px; letter-spacing: 0.08em; }
-#just-pr-panel .jp-idle-heading { font-size: 22px; line-height: 1.3; }
-#just-pr-panel .jp-decision-title { font-size: 20px; line-height: 1.35; }
-#just-pr-panel .jp-loading-pct { font-size: 34px; line-height: 1; }
-#just-pr-panel .jp-risk-score { font-size: 42px; line-height: 1; }
+#pr-lens-panel .jp-logo { font-size: 16px; font-weight: 600; }
+#pr-lens-panel .jp-logo-sub { font-size: 12px; letter-spacing: 0.08em; }
+#pr-lens-panel .jp-idle-heading { font-size: 22px; line-height: 1.3; }
+#pr-lens-panel .jp-decision-title { font-size: 20px; line-height: 1.35; }
+#pr-lens-panel .jp-loading-pct { font-size: 34px; line-height: 1; }
+#pr-lens-panel .jp-risk-score { font-size: 42px; line-height: 1; }
 
-#just-pr-panel .jp-section-label,
-#just-pr-panel .jp-col-label,
-#just-pr-panel .jp-step-eyebrow,
-#just-pr-panel .jp-decision-eyebrow,
-#just-pr-panel .jp-sections-label {
+#pr-lens-panel .jp-section-label,
+#pr-lens-panel .jp-col-label,
+#pr-lens-panel .jp-step-eyebrow,
+#pr-lens-panel .jp-decision-eyebrow,
+#pr-lens-panel .jp-sections-label {
   font-size: 12px;
   letter-spacing: 0.08em;
 }
 
-#just-pr-panel .jp-progress-step-name,
-#just-pr-panel .jp-order-label,
-#just-pr-panel .jp-step-title,
-#just-pr-panel .jp-flag-name {
+#pr-lens-panel .jp-progress-step-name,
+#pr-lens-panel .jp-order-label,
+#pr-lens-panel .jp-step-title,
+#pr-lens-panel .jp-flag-name {
   font-size: 15px;
   font-weight: 600;
 }
 
-#just-pr-panel .jp-analyze-btn,
-#just-pr-panel .jp-start-btn,
-#just-pr-panel .jp-submit-review-btn,
-#just-pr-panel .jp-nav-btn,
-#just-pr-panel .jp-decision-pick-label,
-#just-pr-panel .jp-step-risk-pill,
-#just-pr-panel .jp-order-risk,
-#just-pr-panel .jp-flag-risk {
+#pr-lens-panel .jp-analyze-btn,
+#pr-lens-panel .jp-start-btn,
+#pr-lens-panel .jp-submit-review-btn,
+#pr-lens-panel .jp-nav-btn,
+#pr-lens-panel .jp-decision-pick-label,
+#pr-lens-panel .jp-step-risk-pill,
+#pr-lens-panel .jp-order-risk,
+#pr-lens-panel .jp-flag-risk {
   font-size: 12px;
   letter-spacing: 0.06em;
 }
 
-#just-pr-panel .jp-diff-code,
-#just-pr-panel .jp-md pre,
-#just-pr-panel .jp-comment-textarea,
-#just-pr-panel .jp-comment-note-text {
+#pr-lens-panel .jp-diff-code,
+#pr-lens-panel .jp-md pre,
+#pr-lens-panel .jp-comment-textarea,
+#pr-lens-panel .jp-comment-note-text {
   font-family: var(--mono);
   font-size: 12px;
   line-height: 1.45;
 }
 
 /* ─── Mockup V3 Step Layout ─────────────────────────────────── */
-#just-pr-panel {
+#pr-lens-panel {
   background: #f8fafc;
 }
 

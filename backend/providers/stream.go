@@ -3,7 +3,7 @@ package providers
 import (
 	"strings"
 
-	"github.com/just-pr/backend/analysis"
+	"github.com/pr-lens/backend/analysis"
 )
 
 // flushLines emits all complete newline-delimited JSON events from buf.

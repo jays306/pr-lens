@@ -1,4 +1,4 @@
-import type { SSEEvent, PRCategory, RiskLevel, CodeSnippet } from "./types";
+import type { SSEEvent, PRCategory, RiskLevel, CodeSnippet, ExistingComment } from "./types";
 import { overlayCSS } from "./__generated_css";
 import { marked } from "marked";
 import hljs from "highlight.js/lib/core";
@@ -57,6 +57,7 @@ interface AnalysisState {
   affected: string[];
   reviewOrder: string[];
   categories: PRCategory[];
+  existingComments: ExistingComment[];
   recommendation?: { action: "approve" | "request_changes" | "needs_review"; reason: string };
 }
 
@@ -87,7 +88,7 @@ export class JustPROverlay {
 
   private state: AnalysisState = {
     riskScore: 0, riskLevel: "low", riskLabel: "",
-    summary: "", affected: [], reviewOrder: [], categories: [],
+    summary: "", affected: [], reviewOrder: [], categories: [], existingComments: [],
   };
 
   // Step navigation
@@ -657,6 +658,30 @@ export class JustPROverlay {
       diffGrid.appendChild(beforeCol);
       diffGrid.appendChild(afterCol);
       diffFocus.appendChild(diffGrid);
+
+      // Existing review comments matching this snippet's file/line range
+      const snippetLineEnd = s.lineStart + Math.max(
+        s.before ? s.before.split("\n").length : 0,
+        s.after ? s.after.split("\n").length : 0,
+      );
+      const matchingComments = this.state.existingComments.filter(c =>
+        c.path === s.file && c.line >= s.lineStart && c.line <= snippetLineEnd
+      );
+      if (matchingComments.length > 0) {
+        const commentsEl = document.createElement("div");
+        commentsEl.className = "jp-existing-comments";
+        commentsEl.innerHTML = `<div class="jp-existing-comments-label">Existing feedback</div>` +
+          matchingComments.map(c => `
+            <div class="jp-existing-comment">
+              <div class="jp-existing-comment-meta">
+                <span class="jp-existing-comment-author">${escapeHtml(c.author)}</span>
+                <span class="jp-existing-comment-line">L${c.line}</span>
+              </div>
+              <div class="jp-existing-comment-body jp-md">${md(c.body)}</div>
+            </div>
+          `).join("");
+        diffFocus.appendChild(commentsEl);
+      }
 
       // Per-snippet note
       const noteWrap = document.createElement("div");
@@ -1338,7 +1363,7 @@ export class JustPROverlay {
   private reset(): void {
     this.state = {
       riskScore: 0, riskLevel: "low", riskLabel: "",
-      summary: "", affected: [], reviewOrder: [], categories: [],
+      summary: "", affected: [], reviewOrder: [], categories: [], existingComments: [],
     };
     this.currentStep = 0;
     this.comments.clear();
@@ -1354,7 +1379,7 @@ export class JustPROverlay {
     this.isAnalyzing = true;
     this.state = {
       riskScore: 0, riskLevel: "low", riskLabel: "",
-      summary: "", affected: [], reviewOrder: [], categories: [],
+      summary: "", affected: [], reviewOrder: [], categories: [], existingComments: [],
     };
     this.currentStep = 0;
     this.comments.clear();
@@ -1426,7 +1451,11 @@ export class JustPROverlay {
           case "systems": {
             this.state.affected = event.data.affected;
             this.state.reviewOrder = event.data.reviewOrder;
-            this.updateLoadingProgress("systems", `${event.data.affected.length} systems identified`);
+            this.updateLoadingProgress("systems", `${event.data.affected.length} systems identified: ${event.data.affected.join(", ")}`);
+            break;
+          }
+          case "comments": {
+            this.state.existingComments = event.data.comments;
             break;
           }
           case "category": {

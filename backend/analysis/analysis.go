@@ -35,6 +35,7 @@ type FullAnalyzer interface {
 		diff string,
 		prFiles []PRFile,
 		fileContents []FileContent,
+		existingComments []ExistingComment,
 		emit func(StreamEvent) error,
 	) error
 }

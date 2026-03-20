@@ -13,6 +13,7 @@
 ## Task 1: diff_filter.go — Extract diff hunks by filename
 
 **Files:**
+
 - Create: `backend/ai/diff_filter.go`
 - Create: `backend/ai/diff_filter_test.go`
 
@@ -161,6 +162,7 @@ git commit -m "feat: add diff_filter to extract hunks by filename"
 ## Task 2: triage.go — Haiku file classification call
 
 **Files:**
+
 - Create: `backend/ai/triage.go`
 - Create: `backend/ai/triage_test.go`
 
@@ -173,7 +175,7 @@ package ai
 import (
 	"testing"
 
-	ghclient "github.com/just-pr/backend/github"
+	ghclient "github.com/pr-lens/backend/github"
 )
 
 func TestBuildTriagePrompt(t *testing.T) {
@@ -236,7 +238,7 @@ Expected: FAIL — `buildTriagePrompt` and `parseTriageResponse` undefined.
 
 ### Step 3: Implement triage.go
 
-```go
+````go
 // backend/ai/triage.go
 package ai
 
@@ -248,7 +250,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
-	ghclient "github.com/just-pr/backend/github"
+	ghclient "github.com/pr-lens/backend/github"
 )
 
 const triageModel = "claude-haiku-4-5-20251001"
@@ -329,7 +331,7 @@ func parseTriageResponse(raw string) (TriageResult, error) {
 	}
 	return result, nil
 }
-```
+````
 
 ### Step 4: Run test to verify it passes
 
@@ -351,6 +353,7 @@ git commit -m "feat: add Haiku triage call for file classification"
 ## Task 3: prompt.go additions — Specialist and summary prompts
 
 **Files:**
+
 - Modify: `backend/ai/prompt.go`
 
 The specialist system prompt is a focused variant of the existing `SystemPrompt()`. It instructs the model to emit only `category` + `snippet` events for one specific category. The summary prompt produces `risk`, `summary`, and `systems` events from a condensed diff view.
@@ -439,6 +442,7 @@ git commit -m "feat: add SpecialistSystemPrompt and SummarySystemPrompt"
 ## Task 4: specialist.go — Single category analysis call
 
 **Files:**
+
 - Create: `backend/ai/specialist.go`
 - Create: `backend/ai/specialist_test.go`
 
@@ -506,7 +510,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
-	ghclient "github.com/just-pr/backend/github"
+	ghclient "github.com/pr-lens/backend/github"
 )
 
 // RunSpecialist runs a focused Sonnet analysis for a single category.
@@ -644,6 +648,7 @@ git commit -m "feat: add RunSpecialist for single-category Sonnet analysis"
 ## Task 5: pipeline.go — PipelineProvider orchestrator
 
 **Files:**
+
 - Create: `backend/ai/pipeline.go`
 - Create: `backend/ai/pipeline_test.go`
 
@@ -656,7 +661,7 @@ package ai
 import (
 	"testing"
 
-	ghclient "github.com/just-pr/backend/github"
+	ghclient "github.com/pr-lens/backend/github"
 )
 
 func TestPipelineThreshold(t *testing.T) {
@@ -702,7 +707,7 @@ Expected: FAIL — `aboveThreshold` undefined.
 
 ### Step 3: Implement pipeline.go
 
-```go
+````go
 // backend/ai/pipeline.go
 package ai
 
@@ -712,7 +717,7 @@ import (
 	"strings"
 	"sync"
 
-	ghclient "github.com/just-pr/backend/github"
+	ghclient "github.com/pr-lens/backend/github"
 )
 
 // PipelineConfig holds configuration for the two-stage pipeline.
@@ -902,7 +907,7 @@ Then emit: {"type":"done","data":{}}`
 		return ev.Type == "recommendation"
 	})
 }
-```
+````
 
 Note: `runStreamingCall` is a helper we need to extract from `claude.go`. Add it in the next step.
 
@@ -1003,6 +1008,7 @@ git commit -m "feat: add PipelineProvider two-stage parallel orchestrator"
 ## Task 6: Wire PipelineProvider into main.go
 
 **Files:**
+
 - Modify: `backend/main.go`
 
 The handler needs to call `AnalyzePRFull` when the provider is a `*PipelineProvider`. The cleanest approach: extend `handlers/analyze.go` to type-assert for a `FullAnalyzer` interface, keeping the handler generic.
@@ -1025,7 +1031,7 @@ type FullAnalyzer interface {
 }
 ```
 
-Add the import `ghclient "github.com/just-pr/backend/github"` to `provider.go`.
+Add the import `ghclient "github.com/pr-lens/backend/github"` to `provider.go`.
 
 ### Step 2: Update handlers/analyze.go to use FullAnalyzer when available
 
@@ -1114,6 +1120,7 @@ git commit -m "feat: wire PipelineProvider into handler via FullAnalyzer interfa
 ## Task 7: Integration smoke test
 
 **Files:**
+
 - Create: `backend/ai/pipeline_integration_test.go`
 
 This test uses a golden fixture diff to verify the full SSE event sequence without hitting a real API. It mocks the Anthropic transport layer — or uses a recorded real diff with `INTEGRATION=1` guard.

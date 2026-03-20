@@ -6,7 +6,7 @@ import (
 )
 
 // RunSpecialist runs a focused analysis for a single category using the given Analyzer.
-func RunSpecialist(ctx context.Context, a Analyzer, categoryID string, files []string, diff string, fileContents []FileContent) ([]StreamEvent, error) {
+func RunSpecialist(ctx context.Context, a Analyzer, categoryID string, files []string, diff string, fileContents []FileContent, existingComments []ExistingComment) ([]StreamEvent, error) {
 	filteredDiff := FilterDiffByFiles(diff, files)
 	if strings.TrimSpace(filteredDiff) == "" {
 		return []StreamEvent{{
@@ -30,7 +30,15 @@ func RunSpecialist(ctx context.Context, a Analyzer, categoryID string, files []s
 		}
 	}
 
-	return callAndCollect(ctx, a, SpecialistSystemPrompt(categoryID), UserPrompt(filteredDiff, filteredContents), func(ev StreamEvent) bool {
+	// Filter comments to only those relevant to this category's files.
+	var filteredComments []ExistingComment
+	for _, c := range existingComments {
+		if fileSet[c.Path] {
+			filteredComments = append(filteredComments, c)
+		}
+	}
+
+	return callAndCollect(ctx, a, SpecialistSystemPrompt(categoryID), UserPrompt(filteredDiff, filteredContents, filteredComments), func(ev StreamEvent) bool {
 		return ev.Type == "category"
 	})
 }

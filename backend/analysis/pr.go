@@ -31,3 +31,11 @@ type FileContent struct {
 	Path    string
 	Content string
 }
+
+// ExistingComment is an inline review comment already posted on the PR.
+type ExistingComment struct {
+	Path   string
+	Line   int
+	Author string
+	Body   string
+}

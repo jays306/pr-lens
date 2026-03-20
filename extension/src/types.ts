@@ -40,12 +40,20 @@ export interface PRAnalysis {
   finalRecommendation?: "approve" | "request_changes" | "needs_review";
 }
 
+export interface ExistingComment {
+  path: string;
+  line: number;
+  author: string;
+  body: string;
+}
+
 // SSE event types streamed from backend
 export type SSEEvent =
   | { type: "meta"; data: { title: string; author: string } }
   | { type: "risk"; data: { score: number; level: RiskLevel; label: string } }
   | { type: "summary"; data: { text: string } }
   | { type: "systems"; data: { affected: string[]; reviewOrder: string[] } }
+  | { type: "comments"; data: { comments: ExistingComment[] } }
   | { type: "category"; data: PRCategory }
   | { type: "recommendation"; data: { action: "approve" | "request_changes" | "needs_review"; reason: string } }
   | { type: "done"; data: Record<string, never> }

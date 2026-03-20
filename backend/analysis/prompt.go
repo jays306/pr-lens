@@ -119,8 +119,8 @@ Available category IDs (only emit categories with actual changes):
 6. **Do not invent changes** that aren't in the diff. Only report what you see.`
 }
 
-// UserPrompt builds the user message for a PR diff with optional file context.
-func UserPrompt(diff string, fileContents []FileContent) string {
+// UserPrompt builds the user message for a PR diff with optional file context and existing comments.
+func UserPrompt(diff string, fileContents []FileContent, existingComments []ExistingComment) string {
 	const maxDiffLen = 200_000
 	if len(diff) > maxDiffLen {
 		diff = diff[:maxDiffLen] + "\n\n[diff truncated — showing first 200k characters]"
@@ -130,6 +130,15 @@ func UserPrompt(diff string, fileContents []FileContent) string {
 	b.WriteString("Analyze this pull request diff:\n\n```diff\n")
 	b.WriteString(diff)
 	b.WriteString("\n```\n")
+
+	if len(existingComments) > 0 {
+		b.WriteString("\n---\n\n")
+		b.WriteString("# Existing review comments\n\n")
+		b.WriteString("These comments have already been posted by reviewers on this PR. Take them into account — avoid re-raising the same concerns, and consider whether they have been addressed.\n\n")
+		for _, c := range existingComments {
+			fmt.Fprintf(&b, "**%s** on `%s` (line %d):\n> %s\n\n", c.Author, c.Path, c.Line, strings.ReplaceAll(c.Body, "\n", "\n> "))
+		}
+	}
 
 	if len(fileContents) > 0 {
 		b.WriteString("\n---\n\n")

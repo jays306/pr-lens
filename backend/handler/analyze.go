@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/just-pr/backend/analysis"
-	"github.com/just-pr/backend/cache"
-	"github.com/just-pr/backend/github"
+	"github.com/pr-lens/backend/analysis"
+	"github.com/pr-lens/backend/cache"
+	"github.com/pr-lens/backend/github"
 )
 
 type analyzeRequest struct {
@@ -44,8 +44,11 @@ func Analyze(ghClient *github.Client, analyzer analysis.Analyzer, store *cache.S
 			err  error
 		}
 		type filesResult struct {
-			prFiles  []analysis.PRFile
-			contents []analysis.FileContent
+			prFiles          []analysis.PRFile
+			contents         []analysis.FileContent
+			treePaths        []string
+			info             *analysis.PRInfo
+			existingComments []analysis.ExistingComment
 		}
 
 		diffCh := make(chan diffResult, 1)
@@ -72,15 +75,56 @@ func Analyze(ghClient *github.Client, analyzer analysis.Analyzer, store *cache.S
 				filesCh <- filesResult{}
 				return
 			}
+
 			var toFetch []string
 			for _, f := range prFiles {
 				if f.Status == "modified" || f.Status == "renamed" {
 					toFetch = append(toFetch, f.Filename)
 				}
 			}
+
+			// Fetch the repo tree, diff-file contents, and existing review comments concurrently.
+			type treeResult struct {
+				paths []string
+				err   error
+			}
+			type commentsResult struct {
+				comments []analysis.ExistingComment
+				err      error
+			}
+			treeCh := make(chan treeResult, 1)
+			commentsCh := make(chan commentsResult, 1)
+			go func() {
+				entries, err := ghClient.FetchRepoTree(r.Context(), ref, info.Head.SHA)
+				if err != nil {
+					treeCh <- treeResult{nil, err}
+					return
+				}
+				paths := make([]string, 0, len(entries))
+				for _, e := range entries {
+					paths = append(paths, e.Path)
+				}
+				treeCh <- treeResult{paths, nil}
+			}()
+			go func() {
+				comments, err := ghClient.FetchReviewComments(r.Context(), ref)
+				commentsCh <- commentsResult{comments, err}
+			}()
+
 			contents := ghClient.FetchFileContents(r.Context(), ref, info.Base.SHA, toFetch)
-			log.Printf("[analyze] FetchPRInfo+Files+Contents done in %s (%d files, %d contents)", time.Since(t).Round(time.Millisecond), len(prFiles), len(contents))
-			filesCh <- filesResult{prFiles: prFiles, contents: contents}
+
+			tr := <-treeCh
+			if tr.err != nil {
+				log.Printf("[analyze] FetchRepoTree error (non-fatal): %v", tr.err)
+			}
+			cr := <-commentsCh
+			if cr.err != nil {
+				log.Printf("[analyze] FetchReviewComments error (non-fatal): %v", cr.err)
+			}
+
+			log.Printf("[analyze] FetchPRInfo+Files+Contents+Tree+Comments done in %s (%d files, %d contents, %d tree entries, %d comments)",
+				time.Since(t).Round(time.Millisecond), len(prFiles), len(contents), len(tr.paths), len(cr.comments))
+			filesCh <- filesResult{prFiles: prFiles, contents: contents, treePaths: tr.paths, info: info, existingComments: cr.comments}
 		}()
 
 		dr := <-diffCh
@@ -90,6 +134,29 @@ func Analyze(ghClient *github.Client, analyzer analysis.Analyzer, store *cache.S
 			return
 		}
 		fr := <-filesCh
+
+		// Resolve cross-references: find files imported by the diff that we
+		// haven't fetched yet, then fetch those from the head SHA so the AI
+		// sees the full context of referenced types, interfaces, and helpers.
+		if len(fr.treePaths) > 0 && dr.diff != "" && fr.info != nil {
+			alreadyFetched := make(map[string]bool, len(fr.contents))
+			for _, fc := range fr.contents {
+				alreadyFetched[fc.Path] = true
+			}
+			var allFilenames []string
+			for _, f := range fr.prFiles {
+				allFilenames = append(allFilenames, f.Filename)
+			}
+			xrefPaths := analysis.ResolveXRefs(dr.diff, allFilenames, fr.treePaths, alreadyFetched)
+			if len(xrefPaths) > 0 {
+				t := time.Now()
+				log.Printf("[analyze] fetching %d cross-referenced files", len(xrefPaths))
+				xrefContents := ghClient.FetchFileContents(r.Context(), ref, fr.info.Head.SHA, xrefPaths)
+				fr.contents = append(fr.contents, xrefContents...)
+				log.Printf("[analyze] xref fetch done in %s (%d files fetched)", time.Since(t).Round(time.Millisecond), len(xrefContents))
+			}
+		}
+
 		log.Printf("[analyze] github fetch phase done in %s", time.Since(reqStart).Round(time.Millisecond))
 
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -113,6 +180,20 @@ func Analyze(ghClient *github.Client, analyzer analysis.Analyzer, store *cache.S
 			return nil
 		}
 
+		// Always emit existing comments before AI results (not cached).
+		if len(fr.existingComments) > 0 {
+			comments := make([]map[string]any, 0, len(fr.existingComments))
+			for _, c := range fr.existingComments {
+				comments = append(comments, map[string]any{
+					"path":   c.Path,
+					"line":   c.Line,
+					"author": c.Author,
+					"body":   c.Body,
+				})
+			}
+			_ = emit(analysis.StreamEvent{Type: "comments", Data: map[string]any{"comments": comments}})
+		}
+
 		cacheKey := cache.Key(dr.diff)
 		if cached, ok := store.Get(cacheKey); ok {
 			store.LogStats(cacheKey, true)
@@ -130,9 +211,9 @@ func Analyze(ghClient *github.Client, analyzer analysis.Analyzer, store *cache.S
 		aiStart := time.Now()
 		var analyzeErr error
 		if full, ok := analyzer.(analysis.FullAnalyzer); ok {
-			analyzeErr = full.AnalyzePRFull(r.Context(), dr.diff, fr.prFiles, fr.contents, collectingEmit)
+			analyzeErr = full.AnalyzePRFull(r.Context(), dr.diff, fr.prFiles, fr.contents, fr.existingComments, collectingEmit)
 		} else {
-			analyzeErr = analyzer.AnalyzePR(r.Context(), analysis.UserPrompt(dr.diff, fr.contents), collectingEmit)
+			analyzeErr = analyzer.AnalyzePR(r.Context(), analysis.UserPrompt(dr.diff, fr.contents, fr.existingComments), collectingEmit)
 		}
 		if analyzeErr != nil {
 			log.Printf("[analyze] error: %v", analyzeErr)

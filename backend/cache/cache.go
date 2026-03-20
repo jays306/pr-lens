@@ -12,12 +12,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/just-pr/backend/analysis"
+	"github.com/pr-lens/backend/analysis"
 )
 
 // Version is embedded in every cache key. Bump this whenever the prompt or
 // output schema changes so stale entries are never replayed.
-const Version = "v2"
+const Version = "v3"
 
 // entry holds the cached events and metadata for one diff.
 type entry struct {

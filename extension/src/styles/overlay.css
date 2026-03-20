@@ -1094,6 +1094,68 @@
 .hljs-built_in { color: #0f766e; }
 .hljs-operator { color: var(--text-dim); }
 
+/* Existing review comments on a snippet */
+.jp-existing-comments {
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jp-existing-comments-label {
+  font-family: var(--mono);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-ghost);
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+.jp-existing-comment {
+  padding: 8px 10px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--copper-mid);
+  border-radius: var(--radius);
+}
+
+.jp-existing-comment-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.jp-existing-comment-author {
+  font-family: var(--mono);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.jp-existing-comment-line {
+  font-family: var(--mono);
+  font-size: 16px;
+  color: var(--text-ghost);
+}
+
+.jp-existing-comment-body {
+  font-size: 19px;
+  line-height: 1.55;
+  color: var(--text-primary);
+}
+
+.jp-existing-comment-body pre,
+.jp-existing-comment-body code {
+  font-family: var(--mono);
+  font-size: 17px;
+  background: var(--bg-surface);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
 /* Per-snippet note row */
 .jp-diff-card-note-wrap {
   padding: 10px 14px;

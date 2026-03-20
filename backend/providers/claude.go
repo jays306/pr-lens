@@ -7,7 +7,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
-	"github.com/just-pr/backend/analysis"
+	"github.com/pr-lens/backend/analysis"
 )
 
 // ClaudeProvider implements analysis.Analyzer against the Anthropic API.

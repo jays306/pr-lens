@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/just-pr/backend/analysis"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
+	"github.com/pr-lens/backend/analysis"
 )
 
 // OpenAIProvider implements analysis.Analyzer against any OpenAI-compatible API.

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/just-pr/backend/analysis"
+	"github.com/pr-lens/backend/analysis"
 )
 
 // ParsePRURL extracts owner, repo, and PR number from a GitHub PR URL.
@@ -171,6 +171,103 @@ func (c *Client) fetchSingleFile(ctx context.Context, ref *analysis.PRRef, sha, 
 		return "", err
 	}
 	return string(body), nil
+}
+
+// TreeEntry represents a single entry in the repository's git tree.
+type TreeEntry struct {
+	Path string `json:"path"`
+	Type string `json:"type"` // "blob" or "tree"
+}
+
+// FetchRepoTree returns the recursive file tree for a repository at the given SHA.
+// Only blob (file) entries are returned; directories are omitted.
+func (c *Client) FetchRepoTree(ctx context.Context, ref *analysis.PRRef, sha string) ([]TreeEntry, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/git/trees/%s?recursive=1", ref.Owner, ref.Repo, sha)
+	req, err := c.newRequest(ctx, url, "application/vnd.github+json")
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("github request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("github API error %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var result struct {
+		Tree     []TreeEntry `json:"tree"`
+		Truncated bool       `json:"truncated"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decoding tree: %w", err)
+	}
+	if result.Truncated {
+		// For very large repos the tree is truncated; we still return what we have.
+		// Cross-reference resolution will simply miss files beyond the limit.
+	}
+
+	var files []TreeEntry
+	for _, e := range result.Tree {
+		if e.Type == "blob" {
+			files = append(files, e)
+		}
+	}
+	return files, nil
+}
+
+// FetchReviewComments returns all existing inline review comments on a PR.
+func (c *Client) FetchReviewComments(ctx context.Context, ref *analysis.PRRef) ([]analysis.ExistingComment, error) {
+	var all []analysis.ExistingComment
+	for page := 1; ; page++ {
+		url := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%d/comments?per_page=100&page=%d",
+			ref.Owner, ref.Repo, ref.Number, page)
+		req, err := c.newRequest(ctx, url, "application/vnd.github+json")
+		if err != nil {
+			return nil, err
+		}
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("github request failed: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return nil, fmt.Errorf("github API error %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+		var batch []struct {
+			Path     string `json:"path"`
+			Line     int    `json:"line"`
+			OrigLine int    `json:"original_line"`
+			Body     string `json:"body"`
+			User     struct {
+				Login string `json:"login"`
+			} `json:"user"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&batch); err != nil {
+			return nil, fmt.Errorf("decoding review comments: %w", err)
+		}
+		for _, c := range batch {
+			line := c.Line
+			if line == 0 {
+				line = c.OrigLine
+			}
+			all = append(all, analysis.ExistingComment{
+				Path:   c.Path,
+				Line:   line,
+				Author: c.User.Login,
+				Body:   c.Body,
+			})
+		}
+		if len(batch) < 100 {
+			break
+		}
+	}
+	return all, nil
 }
 
 // ReviewComment is a single inline comment for a pull request review.

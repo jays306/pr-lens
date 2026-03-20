@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
-	"github.com/just-pr/backend/analysis"
-	"github.com/just-pr/backend/cache"
-	"github.com/just-pr/backend/github"
-	"github.com/just-pr/backend/handler"
-	"github.com/just-pr/backend/providers"
+	"github.com/pr-lens/backend/analysis"
+	"github.com/pr-lens/backend/cache"
+	"github.com/pr-lens/backend/github"
+	"github.com/pr-lens/backend/handler"
+	"github.com/pr-lens/backend/providers"
 )
 
 func main() {

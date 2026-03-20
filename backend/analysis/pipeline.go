@@ -43,20 +43,21 @@ func (p *PipelineProvider) AnalyzePRFull(
 	diff string,
 	prFiles []PRFile,
 	fileContents []FileContent,
+	existingComments []ExistingComment,
 	emit func(StreamEvent) error,
 ) error {
 	log.Printf("[pipeline] start: %d files, %d diff lines", len(prFiles), strings.Count(diff, "\n"))
 
 	if !aboveThreshold(prFiles, diff) {
 		log.Printf("[pipeline] below threshold — using fallback analyzer")
-		return p.cfg.FallbackAnalyzer.AnalyzePR(ctx, UserPrompt(diff, fileContents), emit)
+		return p.cfg.FallbackAnalyzer.AnalyzePR(ctx, UserPrompt(diff, fileContents, existingComments), emit)
 	}
 
 	triageStart := time.Now()
 	triage, err := Triage(ctx, p.cfg.APIKey, prFiles)
 	if err != nil || len(triage) == 0 {
 		log.Printf("[pipeline] triage failed (%v) — using fallback analyzer", err)
-		return p.cfg.FallbackAnalyzer.AnalyzePR(ctx, UserPrompt(diff, fileContents), emit)
+		return p.cfg.FallbackAnalyzer.AnalyzePR(ctx, UserPrompt(diff, fileContents, existingComments), emit)
 	}
 	log.Printf("[pipeline] triage done in %s: %d categories", time.Since(triageStart).Round(time.Millisecond), len(triage))
 	for cat, files := range triage {
@@ -82,7 +83,7 @@ func (p *PipelineProvider) AnalyzePRFull(
 	for catID, files := range triage {
 		go func(cat string, catFiles []string) {
 			t := time.Now()
-			events, err := RunSpecialist(ctx, p.cfg.Caller, cat, catFiles, diff, fileContents)
+			events, err := RunSpecialist(ctx, p.cfg.Caller, cat, catFiles, diff, fileContents, existingComments)
 			log.Printf("[pipeline] specialist %q done in %s", cat, time.Since(t).Round(time.Millisecond))
 			ch <- result{cat, events, err}
 		}(catID, files)

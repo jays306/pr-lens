@@ -5,7 +5,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/just-pr/backend/github"
+	"github.com/pr-lens/backend/github"
 )
 
 type reviewRequest struct {

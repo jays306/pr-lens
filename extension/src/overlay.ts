@@ -101,8 +101,8 @@ export class JustPROverlay {
   private reviewDecision: "APPROVE" | "REQUEST_CHANGES" | "COMMENT" | null = null;
 
   // Feedback action states keyed by "catIdx:questionIdx"
-  // discuss = post as inline comment; resolved/ignored = suppress
-  private feedbackActions: Map<string, "discuss" | "resolved" | "ignored"> = new Map();
+  // noted = added to snippet note; post = post as standalone inline comment; dismissed = suppressed
+  private feedbackActions: Map<string, "noted" | "post" | "dismissed"> = new Map();
 
   // Track whether this session already submitted (keyed by PR URL in sessionStorage)
   private get submittedKey() { return `pr-lens:submitted:${this.prUrl}`; }
@@ -761,60 +761,81 @@ export class JustPROverlay {
           const btnsRow = document.createElement("div");
           btnsRow.className = "jp-finding-btns";
 
-          const discussBtn = document.createElement("button");
-          discussBtn.className = "jp-finding-btn";
-          discussBtn.textContent = "Discuss";
-          const resolveBtn = document.createElement("button");
-          resolveBtn.className = "jp-finding-btn";
-          resolveBtn.textContent = "Resolve";
-          const ignoreBtn = document.createElement("button");
-          ignoreBtn.className = "jp-finding-btn";
-          ignoreBtn.textContent = "Ignore";
+          // → Note: append feedback text to the snippet note (primary action)
+          const addToNoteBtn = document.createElement("button");
+          addToNoteBtn.className = "jp-finding-btn jp-finding-btn--note";
+          addToNoteBtn.textContent = "→ Note";
+          addToNoteBtn.title = "Add this to your review note for this snippet";
+
+          // Post: post as a standalone inline GitHub comment on submit
+          const postBtn = document.createElement("button");
+          postBtn.className = "jp-finding-btn";
+          postBtn.textContent = "Post";
+          postBtn.title = "Post this as an inline comment to the PR author on submit";
+
+          // Dismiss: not relevant, fade it out
+          const dismissBtn = document.createElement("button");
+          dismissBtn.className = "jp-finding-btn";
+          dismissBtn.textContent = "Dismiss";
+          dismissBtn.title = "Dismiss — not relevant for this review";
 
           const applyFeedbackState = () => {
             const action = this.feedbackActions.get(actionKey);
-            discussBtn.className = "jp-finding-btn" + (action === "discuss"  ? " jp-finding-btn--discuss" : "");
-            resolveBtn.className = "jp-finding-btn" + (action === "resolved" ? " jp-finding-btn--active"  : "");
-            ignoreBtn.className  = "jp-finding-btn" + (action === "ignored"  ? " jp-finding-btn--active"  : "");
-            qCard.classList.toggle("jp-finding-card--resolved", action === "resolved");
-            qCard.classList.toggle("jp-finding-card--ignored",  action === "ignored");
+            addToNoteBtn.className = "jp-finding-btn jp-finding-btn--note" + (action === "noted"     ? " jp-finding-btn--noted"     : "");
+            postBtn.className      = "jp-finding-btn"                       + (action === "post"      ? " jp-finding-btn--post"      : "");
+            dismissBtn.className   = "jp-finding-btn"                       + (action === "dismissed" ? " jp-finding-btn--dismissed" : "");
+            qCard.classList.toggle("jp-finding-card--noted",     action === "noted");
+            qCard.classList.toggle("jp-finding-card--post",      action === "post");
+            qCard.classList.toggle("jp-finding-card--dismissed", action === "dismissed");
           };
           applyFeedbackState();
 
-          discussBtn.addEventListener("click", () => {
+          addToNoteBtn.addEventListener("click", () => {
             const current = this.feedbackActions.get(actionKey);
-            if (current === "discuss") {
+            if (current === "noted") {
+              // Un-note: just clear the action state; leave the note text as-is since user may have edited it
               this.feedbackActions.delete(actionKey);
-            } else {
-              this.feedbackActions.set(actionKey, "discuss");
+              applyFeedbackState();
+              updateSnippetFeedbackBadges();
+              return;
             }
+            // Append question text to the snippet note
+            const existingNote = this.comments.get(key) ?? "";
+            const newNote = existingNote ? `${existingNote}\n\n${q.text}` : q.text;
+            this.comments.set(key, newNote);
+            this.feedbackActions.set(actionKey, "noted");
+            // Update noteWrap immediately
+            noteWrap.innerHTML = "";
+            noteWrap.appendChild(this.buildCommentNote(newNote, key, noteWrap, false));
             applyFeedbackState();
             updateSnippetFeedbackBadges();
           });
-          resolveBtn.addEventListener("click", () => {
+
+          postBtn.addEventListener("click", () => {
             const current = this.feedbackActions.get(actionKey);
-            if (current === "resolved") {
+            if (current === "post") {
               this.feedbackActions.delete(actionKey);
             } else {
-              this.feedbackActions.set(actionKey, "resolved");
-            }
-            applyFeedbackState();
-            updateSnippetFeedbackBadges();
-          });
-          ignoreBtn.addEventListener("click", () => {
-            const current = this.feedbackActions.get(actionKey);
-            if (current === "ignored") {
-              this.feedbackActions.delete(actionKey);
-            } else {
-              this.feedbackActions.set(actionKey, "ignored");
+              this.feedbackActions.set(actionKey, "post");
             }
             applyFeedbackState();
             updateSnippetFeedbackBadges();
           });
 
-          btnsRow.appendChild(discussBtn);
-          btnsRow.appendChild(resolveBtn);
-          btnsRow.appendChild(ignoreBtn);
+          dismissBtn.addEventListener("click", () => {
+            const current = this.feedbackActions.get(actionKey);
+            if (current === "dismissed") {
+              this.feedbackActions.delete(actionKey);
+            } else {
+              this.feedbackActions.set(actionKey, "dismissed");
+            }
+            applyFeedbackState();
+            updateSnippetFeedbackBadges();
+          });
+
+          btnsRow.appendChild(addToNoteBtn);
+          btnsRow.appendChild(postBtn);
+          btnsRow.appendChild(dismissBtn);
           qCard.appendChild(btnsRow);
           list.appendChild(qCard);
         });
@@ -950,13 +971,17 @@ export class JustPROverlay {
       });
     }
 
-    // Comment summary
-    const discussCount = [...this.feedbackActions.values()].filter(v => v === "discuss").length;
-    const noteCount = this.comments.size;
-    if (discussCount + noteCount > 0) {
+    // Comment summary — show a breakdown of what will be posted
+    const postCount  = [...this.feedbackActions.values()].filter(v => v === "post").length;
+    const noteCount  = this.comments.size;
+    const totalCount = postCount + noteCount;
+    if (totalCount > 0) {
       const commentSummary = document.createElement("div");
       commentSummary.className = "jp-comment-summary";
-      commentSummary.textContent = `${discussCount + noteCount} inline comment${discussCount + noteCount !== 1 ? "s" : ""} will be posted`;
+      const parts: string[] = [];
+      if (noteCount  > 0) parts.push(`${noteCount} snippet note${noteCount  !== 1 ? "s" : ""}`);
+      if (postCount  > 0) parts.push(`${postCount} inline post${postCount   !== 1 ? "s" : ""}`);
+      commentSummary.textContent = `${parts.join(" · ")} will be submitted`;
       body.appendChild(commentSummary);
     }
 
@@ -1329,18 +1354,16 @@ export class JustPROverlay {
       comments.push({ path: snippet.file, line: snippet.lineStart || 1, body: text });
     });
 
-    // 2. "Discuss" feedback actions (key = "catIdx:questionIdx")
-    // Resolve and Ignore suppress posting — only Discuss posts to GitHub
+    // 2. "Post" feedback actions (key = "catIdx:questionIdx") — post as standalone inline comments
     this.feedbackActions.forEach((action, key) => {
-      if (action !== "discuss") return;
+      if (action !== "post") return;
       const parts = key.split(":");
       if (parts.length !== 2) return;
       const catIdx = parseInt(parts[0], 10);
       const qIdx = parseInt(parts[1], 10);
       const q = this.state.categories[catIdx]?.reviewQuestions[qIdx];
       if (!q?.file) return;
-      // Format clearly as a discussion point
-      const body = `> ${q.text}\n\n**Flagged for discussion** during AI-assisted review.`;
+      const body = `> ${q.text}\n\n*Posted via AI-assisted review.*`;
       comments.push({ path: q.file, line: q.lineStart || 1, body });
     });
 

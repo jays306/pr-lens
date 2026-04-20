@@ -1292,27 +1292,35 @@
   background: var(--bg-raised);
 }
 
-.jp-finding-btn--discuss {
+/* → Note button: green, primary action */
+.jp-finding-btn--note {
+  border-color: var(--green-mid);
+  color: var(--green);
+}
+.jp-finding-btn--noted {
+  border-color: var(--green-mid);
+  color: var(--green);
+  background: var(--green-dim);
+}
+
+/* Post button: amber — will be sent to GitHub */
+.jp-finding-btn--post {
   border-color: var(--amber-mid);
   color: var(--amber);
   background: var(--amber-dim);
 }
 
-.jp-finding-btn--active {
+/* Dismiss button: muted */
+.jp-finding-btn--dismissed {
   border-color: var(--border-mid);
   color: var(--text-dim);
   background: var(--bg-raised);
 }
 
-.jp-finding-card--resolved {
-  opacity: 0.4;
-}
-
-.jp-finding-card--resolved .jp-finding-text {
-  text-decoration: line-through;
-}
-
-.jp-finding-card--ignored { opacity: 0.22; }
+/* Card states */
+.jp-finding-card--noted    { opacity: 0.55; }
+.jp-finding-card--post     { border-left: 2px solid var(--amber-mid); padding-left: 6px; }
+.jp-finding-card--dismissed { opacity: 0.2; }
 
 .jp-findings-empty {
   padding: 14px;

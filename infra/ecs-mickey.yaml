@@ -1,0 +1,267 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ECS Fargate cluster mickey + pr-lens service (env + Secrets Manager)
+
+Parameters:
+  EcrImageUri:
+    Type: String
+    Default: 200033215230.dkr.ecr.us-east-1.amazonaws.com/mickey/pr-lens:latest
+    Description: Full image URI including tag
+
+  SecretArn:
+    Type: String
+    Default: arn:aws:secretsmanager:us-east-1:200033215230:secret:mickey-LWj9eF
+    Description: >
+      Secrets Manager secret ARN (JSON with GITHUB_TOKEN, ANTHROPIC_API_KEY, OPENAI_API_KEY).
+      If deploy fails on secret resolution, copy the full ARN from the console (includes suffix).
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC for the service (e.g. default VPC)
+
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: >
+      Private subnets for ECS tasks (AssignPublicIp DISABLED). Tasks need routes to AWS APIs via
+      your org VPC endpoints or NAT (this stack does not create VPC endpoints; avoids delete/perm issues).
+
+  AlbSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: >
+      Private subnets (2+ AZs) for internal ALB mickey-sandbox (same as task subnets is fine).
+      Internal ALB has no public IPs; clients reach it from within the VPC/VPN/peering.
+
+  InternalAlbClientCidr:
+    Type: String
+    Description: >
+      IPv4 CIDR allowed to connect to the internal ALB on ports 80/443 (typically your VPC CIDR).
+      Deploy script sets this from describe-vpcs when possible.
+
+  CertificateArn:
+    Type: String
+    Default: arn:aws:acm:us-east-1:200033215230:certificate/f9c19a5e-0b28-4270-8048-282595aa2d67
+    Description: ACM cert for HTTPS (e.g. *.sandbox.vibe.justworks.com for pr-lens.sandbox.vibe.justworks.com)
+
+  ClusterName:
+    Type: String
+    Default: mickey
+    Description: Existing ECS cluster name (not created by this stack)
+
+  TaskCpuArchitecture:
+    Type: String
+    Default: ARM64
+    AllowedValues:
+      - ARM64
+      - X86_64
+    Description: >
+      Must match the image in ECR. ARM64 matches typical docker build on Apple silicon;
+      use X86_64 after pushing an image built with: docker buildx build --platform linux/amd64
+
+Resources:
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: mickey-sandbox internal ALB (HTTPS from VPC or trusted CIDR)
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref InternalAlbClientCidr
+          Description: HTTPS from allowed CIDR (internal ALB; no public IP)
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref InternalAlbClientCidr
+          Description: HTTP redirect to HTTPS
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+
+  ServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: pr-lens tasks - traffic only from mickey-sandbox ALB
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 9000
+          ToPort: 9000
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+          Description: From mickey-sandbox ALB only
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+
+  MickeySandboxAlb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: mickey-sandbox
+      Type: application
+      Scheme: internal
+      IpAddressType: ipv4
+      Subnets: !Ref AlbSubnetIds
+      SecurityGroups:
+        - !Ref AlbSecurityGroup
+      Tags:
+        - Key: Name
+          Value: mickey-sandbox
+
+  PrLensTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: mickey-pr-lens-tg
+      TargetType: ip
+      Protocol: HTTP
+      Port: 9000
+      VpcId: !Ref VpcId
+      HealthCheckEnabled: true
+      HealthCheckPath: /health
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: '200'
+
+  AlbHttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref MickeySandboxAlb
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: '443'
+            StatusCode: HTTP_301
+
+  AlbHttpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref MickeySandboxAlb
+      Port: 443
+      Protocol: HTTPS
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      Certificates:
+        - CertificateArn: !Ref CertificateArn
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref PrLensTargetGroup
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/mickey/pr-lens-v2
+      RetentionInDays: 14
+
+  EcsTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: ReadAppSecrets
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: GetSecretValue
+                Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Ref SecretArn
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: mickey-pr-lens
+      Cpu: '256'
+      Memory: '512'
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      RuntimePlatform:
+        CpuArchitecture: !Ref TaskCpuArchitecture
+        OperatingSystemFamily: LINUX
+      ExecutionRoleArn: !GetAtt EcsTaskExecutionRole.Arn
+      ContainerDefinitions:
+        - Name: pr-lens
+          Image: !Ref EcrImageUri
+          Essential: true
+          PortMappings:
+            - ContainerPort: 9000
+              Protocol: tcp
+          Environment:
+            - Name: AI_PROVIDER
+              Value: claude
+            - Name: ANTHROPIC_BASE_URL
+              Value: https://litellm.justworksai.net
+            - Name: ANTHROPIC_MODEL
+              Value: claude-opus-4-7
+            - Name: PORT
+              Value: '9000'
+            - Name: CORS_ORIGINS
+              Value: '*'
+          Secrets:
+            - Name: GITHUB_TOKEN
+              ValueFrom: !Sub '${SecretArn}:GITHUB_TOKEN::'
+            - Name: ANTHROPIC_API_KEY
+              ValueFrom: !Sub '${SecretArn}:ANTHROPIC_API_KEY::'
+            - Name: OPENAI_API_KEY
+              ValueFrom: !Sub '${SecretArn}:OPENAI_API_KEY::'
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: pr-lens
+
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - LogGroup
+      - AlbHttpsListener
+    Properties:
+      ServiceName: pr-lens-v2
+      Cluster: !Ref ClusterName
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      LoadBalancers:
+        - ContainerName: pr-lens
+          ContainerPort: 9000
+          TargetGroupArn: !Ref PrLensTargetGroup
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: !Ref SubnetIds
+          SecurityGroups:
+            - !Ref ServiceSecurityGroup
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 200
+
+Outputs:
+  ClusterName:
+    Value: !Ref ClusterName
+  ServiceName:
+    Value: !GetAtt Service.Name
+  ServiceSecurityGroupId:
+    Value: !Ref ServiceSecurityGroup
+  TaskDefinitionArn:
+    Value: !Ref TaskDefinition
+  MickeySandboxAlbDnsName:
+    Description: Internal ALB DNS (resolves to private IPs). Use Route 53 private zone or split-horizon for pr-lens.sandbox...
+    Value: !GetAtt MickeySandboxAlb.DNSName
+  MickeySandboxAlbArn:
+    Value: !Ref MickeySandboxAlb
+  PrLensTargetGroupArn:
+    Value: !Ref PrLensTargetGroup

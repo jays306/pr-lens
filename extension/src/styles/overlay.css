@@ -724,7 +724,8 @@
 /* Start Button */
 .jp-start-btn-wrap {
   padding: 16px var(--sp);
-  margin-top: auto;
+  position: sticky;
+  bottom: 0;
   background: linear-gradient(to top, var(--bg) 70%, transparent);
   flex-shrink: 0;
 }

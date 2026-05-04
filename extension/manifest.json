@@ -3,7 +3,7 @@
   "name": "PR-LENS",
   "version": "0.1.0",
   "description": "AI-native PR review overlay. System-level reasoning for every pull request.",
-  "permissions": ["activeTab", "scripting", "storage"],
+  "permissions": ["storage"],
   "host_permissions": [
     "https://github.com/*",
     "https://gitlab.com/*",
@@ -20,9 +20,19 @@
       "run_at": "document_idle"
     }
   ],
+  "icons": {
+    "16": "public/icon16.png",
+    "48": "public/icon48.png",
+    "128": "public/icon128.png"
+  },
   "action": {
     "default_title": "PR-LENS",
-    "default_popup": "public/popup.html"
+    "default_popup": "public/popup.html",
+    "default_icon": {
+      "16": "public/icon16.png",
+      "48": "public/icon48.png",
+      "128": "public/icon128.png"
+    }
   },
   "web_accessible_resources": [
     {

@@ -14,7 +14,7 @@
       }
 
       body {
-        width: 300px;
+        width: 340px;
         background: #ffffff;
         color: #1c2128;
         font-family:
@@ -118,6 +118,23 @@
         border-color: #cf222e;
       }
 
+      input[type="password"] {
+        flex: 1;
+        border: 1px solid #d0d7de;
+        border-radius: 6px;
+        padding: 6px 10px;
+        font-size: 12px;
+        font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+        color: #1c2128;
+        background: #ffffff;
+        outline: none;
+        transition: border-color 0.15s;
+      }
+
+      input[type="password"]:focus {
+        border-color: #0969da;
+      }
+
       .save-btn {
         border: 1px solid #d0d7de;
         border-radius: 6px;
@@ -180,18 +197,29 @@
     </div>
 
     <div class="section">
-      <div class="section-label">Backend URL</div>
-      <div class="input-wrap">
+      <div class="section-label">Backend &amp; GitHub</div>
+      <div class="input-wrap" style="margin-bottom: 8px">
         <input
           type="url"
           id="urlInput"
           placeholder="http://localhost:8080"
           spellcheck="false"
         />
-        <button class="save-btn" id="saveBtn">Save</button>
+      </div>
+      <div class="input-wrap">
+        <input
+          type="password"
+          id="tokenInput"
+          placeholder="GitHub PAT (ghp_…)"
+          spellcheck="false"
+          autocomplete="off"
+        />
+      </div>
+      <div style="margin-top: 8px">
+        <button class="save-btn" id="saveBtn" style="width: 100%">Save settings</button>
       </div>
       <div class="hint" id="hint">
-        Used for all analysis and review requests.
+        Backend URL is used for all requests. Token is sent as Bearer auth; leave blank if the server sets <code style="font-size:10px">GITHUB_TOKEN</code>.
       </div>
     </div>
 

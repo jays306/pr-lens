@@ -43,5 +43,34 @@ dev: extension-build ## Build extension + run backend
 	@echo "Extension built. Load extension/dist in Chrome (chrome://extensions → Load unpacked)"
 	$(MAKE) backend-run
 
+## ─── Deploy ───────────────────────────────────────────────────────────────────
+
+ECR_IMAGE    ?= 200033215230.dkr.ecr.us-east-1.amazonaws.com/mickey/pr-lens:latest
+AWS_REGION   ?= us-east-1
+AWS_PROFILE  ?= vibe-sandbox
+ECS_CLUSTER  ?= mickey
+ECS_SERVICE  ?= pr-lens-v2
+
+docker-login: ## Authenticate Docker with ECR
+	aws ecr get-login-password --profile $(AWS_PROFILE) --region $(AWS_REGION) | \
+	  docker login --username AWS --password-stdin 200033215230.dkr.ecr.us-east-1.amazonaws.com
+
+docker-build: ## Build linux/amd64 image and push to ECR
+	docker buildx build --platform linux/amd64 -t $(ECR_IMAGE) . --push
+
+cfn-deploy: ## Deploy CloudFormation stack (picks up ecs-mickey.yaml changes)
+	AWS_PROFILE=$(AWS_PROFILE) TASK_CPU_ARCH=X86_64 \
+	  VPC_ID=vpc-00ee6870649e4e463 \
+	  SUBNET_OVERRIDES="subnet-0f2bf9e872c5dee5c,subnet-0b9768d4d82db3bfe" \
+	  ./infra/deploy-ecs.sh
+
+deploy-ecs: ## Force new ECS deployment (pull latest image, no CFN changes)
+	aws ecs update-service --cluster $(ECS_CLUSTER) --service $(ECS_SERVICE) \
+	  --force-new-deployment --profile $(AWS_PROFILE) --region $(AWS_REGION) \
+	  --query 'service.deployments[0].{status:status,running:runningCount,desired:desiredCount}' \
+	  --output table
+
+deploy: docker-login docker-build cfn-deploy ## Build, push image, and update CloudFormation stack
+
 clean: ## Remove build artifacts
 	rm -rf backend/bin extension/dist

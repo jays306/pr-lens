@@ -16,12 +16,19 @@ type reviewRequest struct {
 }
 
 // Review returns an http.HandlerFunc that posts a pull request review to GitHub.
-func Review(ghClient *github.Client) http.HandlerFunc {
+func Review(githubTokenDefault string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+
+		token, err := ResolveGitHubToken(r, githubTokenDefault)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+		ghClient := github.NewClient(token)
 
 		var req reviewRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {

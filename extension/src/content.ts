@@ -1,4 +1,4 @@
-import { JustPROverlay, setBackendUrl } from "./overlay";
+import { JustPROverlay, setBackendUrl, setGithubToken } from "./overlay";
 
 const DEFAULT_BACKEND_URL = "http://localhost:8080";
 
@@ -15,8 +15,9 @@ function detectPRUrl(): string | null {
 let overlay: JustPROverlay | null = null;
 let currentUrl = "";
 
-function init(backendUrl: string): void {
+function init(backendUrl: string, githubToken: string): void {
   setBackendUrl(backendUrl);
+  setGithubToken(githubToken);
 
   const prUrl = detectPRUrl();
   if (!prUrl) return;
@@ -33,15 +34,20 @@ function init(backendUrl: string): void {
 }
 
 // Load backend URL from storage then boot, re-init on storage changes
-chrome.storage.local.get("backendUrl", (result) => {
+chrome.storage.local.get(["backendUrl", "githubToken"], (result) => {
   const url: string = result["backendUrl"] || DEFAULT_BACKEND_URL;
-  init(url);
+  const token: string = result["githubToken"] || "";
+  init(url, token);
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && changes["backendUrl"]) {
+  if (area !== "local") return;
+  if (changes["backendUrl"]) {
     const url: string = changes["backendUrl"].newValue || DEFAULT_BACKEND_URL;
     setBackendUrl(url);
+  }
+  if (changes["githubToken"]) {
+    setGithubToken(changes["githubToken"].newValue || "");
   }
 });
 
@@ -50,8 +56,8 @@ let lastHref = window.location.href;
 const observer = new MutationObserver(() => {
   if (window.location.href !== lastHref) {
     lastHref = window.location.href;
-    chrome.storage.local.get("backendUrl", (result) => {
-      init(result["backendUrl"] || DEFAULT_BACKEND_URL);
+    chrome.storage.local.get(["backendUrl", "githubToken"], (result) => {
+      init(result["backendUrl"] || DEFAULT_BACKEND_URL, result["githubToken"] || "");
     });
   }
 });

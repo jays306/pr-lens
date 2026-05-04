@@ -1,15 +1,19 @@
 const DEFAULT_BACKEND_URL = "http://localhost:8080";
 
-const dot     = document.getElementById("statusDot");
-const text    = document.getElementById("statusText");
+const dot = document.getElementById("statusDot");
+const text = document.getElementById("statusText");
 const urlInput = document.getElementById("urlInput");
-const saveBtn  = document.getElementById("saveBtn");
-const hint     = document.getElementById("hint");
+const tokenInput = document.getElementById("tokenInput");
+const saveBtn = document.getElementById("saveBtn");
+const hint = document.getElementById("hint");
 
-// ── Load saved URL ─────────────────────────────────────────────
-chrome.storage.local.get("backendUrl", (result) => {
+// ── Load saved settings ─────────────────────────────────────
+chrome.storage.local.get(["backendUrl", "githubToken"], (result) => {
   const saved = result["backendUrl"] || DEFAULT_BACKEND_URL;
   urlInput.value = saved;
+  if (result["githubToken"]) {
+    tokenInput.placeholder = "•••••••• (saved — enter new to replace)";
+  }
   checkHealth(saved);
 });
 
@@ -34,17 +38,19 @@ function checkHealth(baseUrl) {
     });
 }
 
-// ── Save URL ───────────────────────────────────────────────────
+// ── Save URL + optional token ──────────────────────────────────
 saveBtn.addEventListener("click", () => {
   const raw = urlInput.value.trim();
 
   if (!raw) {
     urlInput.classList.add("invalid");
-    hint.textContent = "Please enter a URL.";
+    hint.textContent = "Please enter a backend URL.";
     return;
   }
 
-  try { new URL(raw); } catch {
+  try {
+    new URL(raw);
+  } catch {
     urlInput.classList.add("invalid");
     hint.textContent = "Enter a valid URL, e.g. http://localhost:8080";
     return;
@@ -53,21 +59,47 @@ saveBtn.addEventListener("click", () => {
   urlInput.classList.remove("invalid");
   const clean = raw.replace(/\/$/, "");
 
-  chrome.storage.local.set({ backendUrl: clean }, () => {
+  const token = tokenInput.value.trim();
+  const hasExistingToken = tokenInput.placeholder.startsWith("••••");
+
+  const finishSave = (tokenWasSaved) => {
     saveBtn.textContent = "Saved ✓";
     saveBtn.classList.add("saved");
-    hint.textContent = "URL saved. Changes take effect on the next page load.";
+    hint.textContent = "Saved. Reload GitHub PR pages for token changes to apply.";
+    if (tokenWasSaved) {
+      tokenInput.value = "";
+      tokenInput.placeholder = "•••••••• (saved — enter new to replace)";
+    } else if (!hasExistingToken) {
+      tokenInput.placeholder = "GitHub PAT (ghp_…)";
+    }
     checkHealth(clean);
 
     setTimeout(() => {
-      saveBtn.textContent = "Save";
+      saveBtn.textContent = "Save settings";
       saveBtn.classList.remove("saved");
-      hint.textContent = "Used for all analysis and review requests.";
-    }, 2500);
+      hint.textContent =
+        "Backend URL is used for all requests. Token is sent as Bearer auth; leave blank if the server sets GITHUB_TOKEN.";
+    }, 2800);
+  };
+
+  chrome.storage.local.set({ backendUrl: clean }, () => {
+    if (token) {
+      // New token entered — save it.
+      chrome.storage.local.set({ githubToken: token }, () => finishSave(true));
+    } else if (hasExistingToken) {
+      // Field left blank but a token was already saved — keep it.
+      finishSave(false);
+    } else {
+      // No token, none saved — clear any remnant.
+      chrome.storage.local.remove("githubToken", () => finishSave(false));
+    }
   });
 });
 
-// ── Re-check health on Enter ───────────────────────────────────
+// ── Re-check health on Enter in URL field ───────────────────
 urlInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") saveBtn.click();
+});
+tokenInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") saveBtn.click();
 });

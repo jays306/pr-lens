@@ -48,6 +48,21 @@ hljs.registerLanguage("yaml", yaml);
 
 const DEFAULT_BACKEND_URL = "http://localhost:8080";
 let BACKEND_URL = DEFAULT_BACKEND_URL;
+/** GitHub PAT from extension storage; sent as Authorization Bearer on /analyze and /review. */
+let GITHUB_TOKEN = "";
+
+export function setGithubToken(token: string): void {
+  GITHUB_TOKEN = token.trim();
+}
+
+/** Headers for backend JSON requests; includes Bearer token when configured. */
+function backendHeaders(): HeadersInit {
+  const h: Record<string, string> = { "Content-Type": "application/json" };
+  if (GITHUB_TOKEN) {
+    h["Authorization"] = `Bearer ${GITHUB_TOKEN}`;
+  }
+  return h;
+}
 
 interface AnalysisState {
   riskScore: number;
@@ -187,12 +202,19 @@ export class JustPROverlay {
   private renderScreen(screen: Screen): void {
     this.screenEl.innerHTML = "";
 
-    switch (screen) {
-      case "idle":     return this.renderIdle();
-      case "loading":  return this.renderLoading();
-      case "overview": return this.renderOverview();
-      case "step":     return this.renderStep(this.currentStep - 1);
-      case "decision": return this.renderDecision();
+    try {
+      switch (screen) {
+        case "idle":     return this.renderIdle();
+        case "loading":  return this.renderLoading();
+        case "overview": return this.renderOverview();
+        case "step":     return this.renderStep(this.currentStep - 1);
+        case "decision": return this.renderDecision();
+      }
+    } catch (err) {
+      const errEl = document.createElement("div");
+      errEl.className = "jp-error";
+      errEl.innerHTML = `<div class="jp-error-label">Render Error</div>${err instanceof Error ? err.message : String(err)}`;
+      this.screenEl.appendChild(errEl);
     }
   }
 
@@ -582,6 +604,11 @@ export class JustPROverlay {
 
     const renderFocusedSnippet = (snippetIdx: number) => {
       const s = cat.snippets[snippetIdx];
+      if (!s) {
+        diffFocus.innerHTML = `<div class="jp-diff-focus-empty">No code snippets for this section.</div>`;
+        feedbackContainer.innerHTML = "";
+        return;
+      }
       const key = `${catIdx}:${snippetIdx}`;
       const hasBefore = s.before && s.before.trim().length > 0;
       const hasAfter = s.after && s.after.trim().length > 0;
@@ -1371,7 +1398,7 @@ export class JustPROverlay {
 
     const resp = await fetch(`${BACKEND_URL}/review`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: backendHeaders(),
       body: JSON.stringify({ url: this.prUrl, event, body: "", comments }),
     });
     if (!resp.ok) {
@@ -1414,11 +1441,14 @@ export class JustPROverlay {
     try {
       const response = await fetch(`${BACKEND_URL}/analyze`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: backendHeaders(),
         body: JSON.stringify({ url: this.prUrl }),
       });
 
-      if (!response.ok) throw new Error(`Backend returned ${response.status}`);
+      if (!response.ok) {
+        const msg = await response.text().catch(() => `HTTP ${response.status}`);
+        throw new Error(msg.trim() || `Backend returned ${response.status}`);
+      }
       await this.consumeStream(response);
     } catch (err) {
       this.screenEl.innerHTML = "";
@@ -1483,7 +1513,10 @@ export class JustPROverlay {
           }
           case "category": {
             categoryCount++;
-            this.state.categories.push(event.data);
+            const cat = event.data as PRCategory;
+            if (!Array.isArray(cat.snippets)) cat.snippets = [];
+            if (!Array.isArray(cat.reviewQuestions)) cat.reviewQuestions = [];
+            this.state.categories.push(cat);
             // Interpolate progress between 50% and 90% based on categories
             const catPct = Math.min(88, 50 + categoryCount * 5);
             const pctEl = this.screenEl.querySelector<HTMLElement>(".jp-loading-pct");

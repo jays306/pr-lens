@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"context"
+	"log"
 	"strings"
 )
 
@@ -38,9 +39,11 @@ func RunSpecialist(ctx context.Context, a Analyzer, categoryID string, files []s
 		}
 	}
 
-	return callAndCollect(ctx, a, SpecialistSystemPrompt(categoryID), UserPrompt(filteredDiff, filteredContents, filteredComments), func(ev StreamEvent) bool {
+	events, err := callAndCollect(ctx, a, SpecialistSystemPrompt(categoryID), UserPrompt(filteredDiff, filteredContents, filteredComments), func(ev StreamEvent) bool {
 		return ev.Type == "category"
 	})
+	log.Printf("[specialist] %q collected %d events (err=%v)", categoryID, len(events), err)
+	return events, err
 }
 
 func collectSpecialistEvents(lines []string) ([]StreamEvent, error) {

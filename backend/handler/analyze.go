@@ -17,12 +17,19 @@ type analyzeRequest struct {
 }
 
 // Analyze returns an http.HandlerFunc that streams PR analysis via SSE.
-func Analyze(ghClient *github.Client, analyzer analysis.Analyzer, store *cache.Store) http.HandlerFunc {
+func Analyze(githubTokenDefault string, analyzer analysis.Analyzer, store *cache.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+
+		token, err := ResolveGitHubToken(r, githubTokenDefault)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+		ghClient := github.NewClient(token)
 
 		var req analyzeRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {

@@ -10,7 +10,6 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/pr-lens/backend/analysis"
 	"github.com/pr-lens/backend/cache"
-	"github.com/pr-lens/backend/github"
 	"github.com/pr-lens/backend/handler"
 	"github.com/pr-lens/backend/providers"
 )
@@ -21,7 +20,11 @@ func main() {
 	port := envOrDefault("PORT", "8080")
 	corsOrigins := envOrDefault("CORS_ORIGINS", "*")
 
-	ghClient := github.NewClient(requireEnv("GITHUB_TOKEN"))
+	ghTokenDefault := strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
+	if ghTokenDefault == "" {
+		log.Printf("GITHUB_TOKEN is not set — clients must send Authorization: Bearer <token> (e.g. from the Chrome extension)")
+	}
+
 	analyzer := buildAnalyzer()
 	log.Printf("Using AI provider: %s", analyzer.Name())
 
@@ -31,8 +34,8 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", handler.Health())
-	mux.HandleFunc("/analyze", handler.Analyze(ghClient, analyzer, analysisCache))
-	mux.HandleFunc("/review", handler.Review(ghClient))
+	mux.HandleFunc("/analyze", handler.Analyze(ghTokenDefault, analyzer, analysisCache))
+	mux.HandleFunc("/review", handler.Review(ghTokenDefault))
 
 	log.Printf("PR-LENS backend listening on :%s", port)
 	if err := http.ListenAndServe(":"+port, corsMiddleware(corsOrigins, mux)); err != nil {
@@ -63,6 +66,14 @@ func buildAnalyzer() analysis.Analyzer {
 			Caller:           p,
 			FallbackAnalyzer: p,
 		})
+	case "bedrock":
+		region := envOrDefault("BEDROCK_REGION", "us-east-1")
+		apiKey := os.Getenv("BEDROCK_API_KEY") // empty → use standard AWS credential chain
+		p := providers.NewBedrockProvider(apiKey, region, model)
+		return analysis.NewPipelineProvider(analysis.PipelineConfig{
+			Caller:           p,
+			FallbackAnalyzer: p,
+		})
 	case "openai":
 		p := providers.NewOpenAIProvider(requireEnv("OPENAI_API_KEY"), baseURL, model)
 		return analysis.NewPipelineProvider(analysis.PipelineConfig{
@@ -71,7 +82,7 @@ func buildAnalyzer() analysis.Analyzer {
 			FallbackAnalyzer: p,
 		})
 	default:
-		log.Fatalf("Unknown AI provider: %q. Supported: claude, openai", providerName)
+		log.Fatalf("Unknown AI provider: %q. Supported: claude, bedrock, openai", providerName)
 		panic("unreachable")
 	}
 }
@@ -80,7 +91,12 @@ func corsMiddleware(allowedOrigins string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 		if allowedOrigins == "*" {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
+			if origin != "" {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Vary", "Origin")
+			} else {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+			}
 		} else {
 			for _, allowed := range strings.Split(allowedOrigins, ",") {
 				if strings.TrimSpace(allowed) == origin {
@@ -91,7 +107,7 @@ func corsMiddleware(allowedOrigins string, next http.Handler) http.Handler {
 			}
 		}
 		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-GitHub-Token")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return

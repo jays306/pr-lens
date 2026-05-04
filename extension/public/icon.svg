@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f1117"/>
+      <stop offset="100%" stop-color="#1a1d2e"/>
+    </linearGradient>
+    <radialGradient id="lens" cx="35%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#6ba3ff"/>
+      <stop offset="100%" stop-color="#1a56db"/>
+    </radialGradient>
+    <radialGradient id="glass" cx="30%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.18)"/>
+      <stop offset="100%" stop-color="rgba(10,18,40,0.88)"/>
+    </radialGradient>
+    <clipPath id="lensClip">
+      <circle cx="56" cy="53" r="23"/>
+    </clipPath>
+  </defs>
+
+  <!-- Background rounded square -->
+  <rect width="128" height="128" rx="22" fill="url(#bg)"/>
+
+  <!-- Lens outer ring -->
+  <circle cx="56" cy="53" r="28" fill="url(#lens)"/>
+
+  <!-- Lens glass -->
+  <circle cx="56" cy="53" r="23" fill="url(#glass)"/>
+
+  <!-- Diff lines inside lens -->
+  <!-- Green line 1 -->
+  <rect x="44" y="44" width="22" height="4" rx="2" fill="#4ade80" opacity="0.92" clip-path="url(#lensClip)"/>
+  <!-- Green line 2 -->
+  <rect x="44" y="51" width="17" height="4" rx="2" fill="#4ade80" opacity="0.92" clip-path="url(#lensClip)"/>
+  <!-- Red line -->
+  <rect x="44" y="58" width="19" height="4" rx="2" fill="#f87171" opacity="0.92" clip-path="url(#lensClip)"/>
+
+  <!-- Magnifying glass handle -->
+  <line x1="74" y1="71" x2="94" y2="91" stroke="#4f8ef7" stroke-width="8" stroke-linecap="round"/>
+  <!-- Handle end cap -->
+  <circle cx="94" cy="91" r="5" fill="#1a56db"/>
+
+  <!-- Lens highlight -->
+  <circle cx="47" cy="44" r="7" fill="rgba(255,255,255,0.11)"/>
+</svg>

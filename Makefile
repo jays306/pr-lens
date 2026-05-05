@@ -72,5 +72,7 @@ deploy-ecs: ## Force new ECS deployment (pull latest image, no CFN changes)
 
 deploy: docker-login docker-build cfn-deploy ## Build, push image, and update CloudFormation stack
 
+deploy-ecs-only: docker-login docker-build deploy-ecs
+
 clean: ## Remove build artifacts
 	rm -rf backend/bin extension/dist

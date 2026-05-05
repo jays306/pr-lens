@@ -31,7 +31,8 @@ func RunSpecialist(ctx context.Context, a Analyzer, categoryID string, files []s
 		}
 	}
 
-	// Filter comments to only those relevant to this category's files.
+	// Filter comments to only those on this category's files (inline + file-anchor).
+	// PR-level discussion is not scoped to specific files and only adds noise here.
 	var filteredComments []ExistingComment
 	for _, c := range existingComments {
 		if fileSet[c.Path] {

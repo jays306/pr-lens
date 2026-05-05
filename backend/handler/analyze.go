@@ -192,16 +192,20 @@ func Analyze(githubTokenDefault string, analyzer analysis.Analyzer, store *cache
 			comments := make([]map[string]any, 0, len(fr.existingComments))
 			for _, c := range fr.existingComments {
 				comments = append(comments, map[string]any{
-					"path":   c.Path,
-					"line":   c.Line,
-					"author": c.Author,
-					"body":   c.Body,
+					"path":         c.Path,
+					"line":         c.Line,
+					"originalLine": c.OriginalLine,
+					"author":       c.Author,
+					"body":         c.Body,
+					"anchor":       c.Anchor,
+					"source":       c.Source,
+					"resolved":     c.Resolved,
 				})
 			}
 			_ = emit(analysis.StreamEvent{Type: "comments", Data: map[string]any{"comments": comments}})
 		}
 
-		cacheKey := cache.Key(dr.diff)
+		cacheKey := cache.Key(dr.diff, commentsCacheMaterial(fr.existingComments))
 		if cached, ok := store.Get(cacheKey); ok {
 			store.LogStats(cacheKey, true)
 			if err := cache.Replay(cached, emit); err != nil {
@@ -230,6 +234,17 @@ func Analyze(githubTokenDefault string, analyzer analysis.Analyzer, store *cache
 		}
 		log.Printf("[analyze] done total=%s ai=%s", time.Since(reqStart).Round(time.Millisecond), time.Since(aiStart).Round(time.Millisecond))
 	}
+}
+
+func commentsCacheMaterial(comments []analysis.ExistingComment) string {
+	if len(comments) == 0 {
+		return ""
+	}
+	data, err := json.Marshal(comments)
+	if err != nil {
+		return fmt.Sprint(comments)
+	}
+	return string(data)
 }
 
 // Health returns a simple health check handler.

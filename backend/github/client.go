@@ -199,8 +199,8 @@ func (c *Client) FetchRepoTree(ctx context.Context, ref *analysis.PRRef, sha str
 	}
 
 	var result struct {
-		Tree     []TreeEntry `json:"tree"`
-		Truncated bool       `json:"truncated"`
+		Tree      []TreeEntry `json:"tree"`
+		Truncated bool        `json:"truncated"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decoding tree: %w", err)
@@ -219,8 +219,32 @@ func (c *Client) FetchRepoTree(ctx context.Context, ref *analysis.PRRef, sha str
 	return files, nil
 }
 
-// FetchReviewComments returns all existing inline review comments on a PR.
+// FetchReviewComments returns existing PR discussion from inline comments,
+// review bodies, and PR conversation comments.
 func (c *Client) FetchReviewComments(ctx context.Context, ref *analysis.PRRef) ([]analysis.ExistingComment, error) {
+	var all []analysis.ExistingComment
+	inline, err := c.fetchInlineReviewComments(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	all = append(all, inline...)
+
+	reviews, err := c.fetchReviewBodies(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	all = append(all, reviews...)
+
+	issueComments, err := c.fetchIssueComments(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	all = append(all, issueComments...)
+
+	return all, nil
+}
+
+func (c *Client) fetchInlineReviewComments(ctx context.Context, ref *analysis.PRRef) ([]analysis.ExistingComment, error) {
 	var all []analysis.ExistingComment
 	for page := 1; ; page++ {
 		url := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%d/comments?per_page=100&page=%d",
@@ -240,9 +264,10 @@ func (c *Client) FetchReviewComments(ctx context.Context, ref *analysis.PRRef) (
 			return nil, fmt.Errorf("github API error %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 		}
 		var batch []struct {
+			ID       int    `json:"id"`
 			Path     string `json:"path"`
-			Line     int    `json:"line"`
-			OrigLine int    `json:"original_line"`
+			Line     *int   `json:"line"`
+			OrigLine *int   `json:"original_line"`
 			Body     string `json:"body"`
 			User     struct {
 				Login string `json:"login"`
@@ -252,15 +277,132 @@ func (c *Client) FetchReviewComments(ctx context.Context, ref *analysis.PRRef) (
 			return nil, fmt.Errorf("decoding review comments: %w", err)
 		}
 		for _, c := range batch {
-			line := c.Line
-			if line == 0 {
-				line = c.OrigLine
+			line := 0
+			if c.Line != nil {
+				line = *c.Line
+			}
+			originalLine := 0
+			if c.OrigLine != nil {
+				originalLine = *c.OrigLine
+			}
+			// line == nil means the comment's target line no longer exists in the
+			// current diff (outdated). Still anchor as inline so it renders with
+			// its original line context, just flagged outdated.
+			outdated := line == 0 && originalLine > 0
+			all = append(all, analysis.ExistingComment{
+				ID:           c.ID,
+				Path:         c.Path,
+				Line:         line,
+				OriginalLine: originalLine,
+				Author:       c.User.Login,
+				Body:         c.Body,
+				Anchor:       "inline",
+				Source:       "review_comment",
+				Outdated:     outdated,
+			})
+		}
+		if len(batch) < 100 {
+			break
+		}
+	}
+
+	// Fetch resolved thread IDs and mark comments accordingly. A failure here
+	// is non-fatal — we just skip resolution tagging.
+	resolvedIDs, err := c.fetchResolvedThreadIDs(ctx, ref)
+	if err == nil && len(resolvedIDs) > 0 {
+		for i := range all {
+			if resolvedIDs[all[i].ID] {
+				all[i].Resolved = true
+			}
+		}
+	}
+
+	return all, nil
+}
+
+func (c *Client) fetchReviewBodies(ctx context.Context, ref *analysis.PRRef) ([]analysis.ExistingComment, error) {
+	var all []analysis.ExistingComment
+	for page := 1; ; page++ {
+		url := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%d/reviews?per_page=100&page=%d",
+			ref.Owner, ref.Repo, ref.Number, page)
+		req, err := c.newRequest(ctx, url, "application/vnd.github+json")
+		if err != nil {
+			return nil, err
+		}
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("github request failed: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return nil, fmt.Errorf("github API error %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+		var batch []struct {
+			Body string `json:"body"`
+			User struct {
+				Login string `json:"login"`
+			} `json:"user"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&batch); err != nil {
+			return nil, fmt.Errorf("decoding reviews: %w", err)
+		}
+		for _, r := range batch {
+			if strings.TrimSpace(r.Body) == "" {
+				continue
 			}
 			all = append(all, analysis.ExistingComment{
-				Path:   c.Path,
-				Line:   line,
-				Author: c.User.Login,
-				Body:   c.Body,
+				Author: r.User.Login,
+				Body:   r.Body,
+				Anchor: "pr",
+				Source: "review",
+			})
+		}
+		if len(batch) < 100 {
+			break
+		}
+	}
+	return all, nil
+}
+
+func (c *Client) fetchIssueComments(ctx context.Context, ref *analysis.PRRef) ([]analysis.ExistingComment, error) {
+	var all []analysis.ExistingComment
+	for page := 1; ; page++ {
+		url := fmt.Sprintf("https://api.github.com/repos/%s/%s/issues/%d/comments?per_page=100&page=%d",
+			ref.Owner, ref.Repo, ref.Number, page)
+		req, err := c.newRequest(ctx, url, "application/vnd.github+json")
+		if err != nil {
+			return nil, err
+		}
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("github request failed: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return nil, fmt.Errorf("github API error %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+		var batch []struct {
+			Body string `json:"body"`
+			User struct {
+				Login string `json:"login"`
+			} `json:"user"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&batch); err != nil {
+			return nil, fmt.Errorf("decoding issue comments: %w", err)
+		}
+		for _, comment := range batch {
+			if strings.TrimSpace(comment.Body) == "" {
+				continue
+			}
+			all = append(all, analysis.ExistingComment{
+				Author: comment.User.Login,
+				Body:   comment.Body,
+				Anchor: "pr",
+				Source: "issue_comment",
 			})
 		}
 		if len(batch) < 100 {
@@ -288,9 +430,9 @@ func (c *Client) PostReview(ctx context.Context, ref *analysis.PRRef, event, bod
 		Position int    `json:"position,omitempty"`
 	}
 	type payload struct {
-		Body     string       `json:"body"`
-		Event    string       `json:"event"`
-		Comments []ghComment  `json:"comments,omitempty"`
+		Body     string      `json:"body"`
+		Event    string      `json:"event"`
+		Comments []ghComment `json:"comments,omitempty"`
 	}
 
 	ghComments := make([]ghComment, 0, len(comments))
@@ -333,6 +475,98 @@ func (c *Client) PostReview(ctx context.Context, ref *analysis.PRRef, event, bod
 		return fmt.Errorf("github API error %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
 	return nil
+}
+
+// fetchResolvedThreadIDs calls the GitHub GraphQL API to determine which review
+// thread comment IDs belong to resolved threads. It returns a map of comment
+// database IDs → true for all comments in resolved threads.
+func (c *Client) fetchResolvedThreadIDs(ctx context.Context, ref *analysis.PRRef) (map[int]bool, error) {
+	const query = `query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      reviewThreads(first: 100) {
+        nodes {
+          isResolved
+          comments(first: 100) {
+            nodes {
+              databaseId
+            }
+          }
+        }
+      }
+    }
+  }
+}`
+
+	type variables struct {
+		Owner  string `json:"owner"`
+		Repo   string `json:"repo"`
+		Number int    `json:"number"`
+	}
+	type requestBody struct {
+		Query     string    `json:"query"`
+		Variables variables `json:"variables"`
+	}
+
+	body, err := json.Marshal(requestBody{
+		Query:     query,
+		Variables: variables{Owner: ref.Owner, Repo: ref.Repo, Number: ref.Number},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("marshaling graphql request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.github.com/graphql", strings.NewReader(string(body)))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("graphql request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("graphql API error %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+
+	var result struct {
+		Data struct {
+			Repository struct {
+				PullRequest struct {
+					ReviewThreads struct {
+						Nodes []struct {
+							IsResolved bool `json:"isResolved"`
+							Comments   struct {
+								Nodes []struct {
+									DatabaseID int `json:"databaseId"`
+								} `json:"nodes"`
+							} `json:"comments"`
+						} `json:"nodes"`
+					} `json:"reviewThreads"`
+				} `json:"pullRequest"`
+			} `json:"repository"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("decoding graphql response: %w", err)
+	}
+
+	resolved := make(map[int]bool)
+	for _, thread := range result.Data.Repository.PullRequest.ReviewThreads.Nodes {
+		if !thread.IsResolved {
+			continue
+		}
+		for _, comment := range thread.Comments.Nodes {
+			resolved[comment.DatabaseID] = true
+		}
+	}
+	return resolved, nil
 }
 
 func (c *Client) newRequest(ctx context.Context, url, accept string) (*http.Request, error) {

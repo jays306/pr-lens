@@ -41,10 +41,15 @@ export interface PRAnalysis {
 }
 
 export interface ExistingComment {
-  path: string;
-  line: number;
+  path?: string;
+  line?: number;
+  originalLine?: number;
   author: string;
   body: string;
+  anchor: "inline" | "file" | "pr";
+  source: "review_comment" | "review" | "issue_comment";
+  outdated?: boolean;
+  resolved?: boolean;
 }
 
 // SSE event types streamed from backend

@@ -32,10 +32,17 @@ type FileContent struct {
 	Content string
 }
 
-// ExistingComment is an inline review comment already posted on the PR.
+// ExistingComment is feedback already posted on the PR. Anchor describes how
+// precisely GitHub can attach it to the current diff.
 type ExistingComment struct {
-	Path   string
-	Line   int
-	Author string
-	Body   string
+	ID           int    `json:"id,omitempty"`
+	Path         string `json:"path,omitempty"`
+	Line         int    `json:"line,omitempty"`
+	OriginalLine int    `json:"originalLine,omitempty"`
+	Author       string `json:"author"`
+	Body         string `json:"body"`
+	Anchor       string `json:"anchor"`            // inline, file, or pr
+	Source       string `json:"source"`            // review_comment, review, or issue_comment
+	Outdated     bool   `json:"outdated,omitempty"` // inline comment whose line no longer exists in current diff
+	Resolved     bool   `json:"resolved,omitempty"` // true when the review thread this comment belongs to is resolved
 }

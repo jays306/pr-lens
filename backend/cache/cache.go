@@ -1,8 +1,8 @@
 // Package cache provides a versioned in-memory cache for PR analysis results.
 //
 // The cache key is derived from the cache version and the SHA-256 of the PR
-// diff. Bumping Version invalidates all existing entries without needing to
-// clear storage manually — old keys simply never match.
+// analysis inputs. Bumping Version invalidates all existing entries without
+// needing to clear storage manually — old keys simply never match.
 package cache
 
 import (
@@ -41,9 +41,14 @@ func New(ttl time.Duration) *Store {
 	}
 }
 
-// Key returns the cache key for a given diff at the current Version.
-func Key(diff string) string {
-	sum := sha256.Sum256([]byte(diff))
+// Key returns the cache key for the current Version and input material.
+func Key(parts ...string) string {
+	h := sha256.New()
+	for _, part := range parts {
+		_, _ = h.Write([]byte(part))
+		_, _ = h.Write([]byte{0})
+	}
+	sum := h.Sum(nil)
 	return fmt.Sprintf("%s:%x", Version, sum)
 }
 

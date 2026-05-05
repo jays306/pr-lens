@@ -136,7 +136,21 @@ func UserPrompt(diff string, fileContents []FileContent, existingComments []Exis
 		b.WriteString("# Existing review comments\n\n")
 		b.WriteString("These comments have already been posted by reviewers on this PR. Take them into account — avoid re-raising the same concerns, and consider whether they have been addressed.\n\n")
 		for _, c := range existingComments {
-			fmt.Fprintf(&b, "**%s** on `%s` (line %d):\n> %s\n\n", c.Author, c.Path, c.Line, strings.ReplaceAll(c.Body, "\n", "\n> "))
+			var location string
+			switch {
+			case c.Anchor == "inline" && c.Line > 0:
+				location = fmt.Sprintf("`%s` line %d", c.Path, c.Line)
+			case c.Anchor == "inline" && c.OriginalLine > 0:
+				location = fmt.Sprintf("`%s` (outdated, was line %d)", c.Path, c.OriginalLine)
+			case c.Path != "":
+				location = fmt.Sprintf("`%s`", c.Path)
+			default:
+				location = "PR-level"
+			}
+			if c.Resolved {
+				location += " (resolved)"
+			}
+			fmt.Fprintf(&b, "**%s** on %s:\n> %s\n\n", c.Author, location, strings.ReplaceAll(c.Body, "\n", "\n> "))
 		}
 	}
 

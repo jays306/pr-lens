@@ -178,7 +178,7 @@ export class JustPROverlay {
     header.innerHTML = `
       <div class="jp-logo">PR-LENS <span class="jp-logo-sub">AI Review</span></div>
       <div class="jp-header-right">
-        <button class="jp-btn-icon jp-btn-restart" title="Start over">↺</button>
+        <button class="jp-btn-icon jp-btn-restart" title="Re-analyze latest PR state">↺</button>
         <button class="jp-btn-icon jp-btn-close" title="Close">✕</button>
       </div>
     `;
@@ -186,7 +186,7 @@ export class JustPROverlay {
 
     header.querySelector(".jp-btn-close")!.addEventListener("click", () => this.togglePanel());
     header.querySelector(".jp-btn-restart")!.addEventListener("click", () => {
-      if (!this.isAnalyzing) this.reset();
+      if (!this.isAnalyzing) void this.startAnalysis();
     });
 
     // Screen container (swapped per state)
@@ -346,6 +346,14 @@ export class JustPROverlay {
       el.appendChild(sysSection);
     }
 
+    const prComments = this.getPRDiscussionComments();
+    if (prComments.length > 0) {
+      const discussionSection = document.createElement("div");
+      discussionSection.className = "jp-section";
+      discussionSection.appendChild(this.buildExistingCommentsBlock("PR Discussion", prComments));
+      el.appendChild(discussionSection);
+    }
+
     // Review order / section list
     if (s.categories.length > 0) {
       const orderSection = document.createElement("div");
@@ -401,73 +409,44 @@ export class JustPROverlay {
     const el = document.createElement("div");
     el.className = "jp-step";
 
-    // ── Top action bar (mockup-aligned) ───────────────────────────
-    const topBar = document.createElement("div");
-    topBar.className = "jp-step-topbar";
-    topBar.innerHTML = `
-      <div class="jp-step-topbar-left">
-        <div class="jp-step-topbar-title">PR-LENS · AI Review</div>
-        <div class="jp-step-topbar-subtitle">${escapeHtml(cat.label)}</div>
+    // ── Slim section header ───────────────────────────────────────
+    const header = document.createElement("div");
+    header.className = "jp-step-header";
+    header.innerHTML = `
+      <div class="jp-step-header-left">
+        <span class="jp-step-rail-dot" data-level="${cat.riskLevel}"></span>
+        <span class="jp-step-icon">${cat.icon}</span>
+        <span class="jp-step-title">${escapeHtml(cat.label)}</span>
+        <span class="jp-step-risk-pill" data-level="${cat.riskLevel}">${cat.riskLevel}</span>
       </div>
-      <div class="jp-step-topbar-actions">
-        <button class="jp-step-topbar-btn jp-step-topbar-btn-prev">Previous</button>
-        <button class="jp-step-topbar-btn jp-step-topbar-btn-next">Next</button>
-        <button class="jp-step-topbar-btn jp-step-topbar-btn-primary">Finish Review</button>
+      <div class="jp-step-header-nav">
+        <button class="jp-step-nav-btn" data-action="prev">← Back</button>
+        <button class="jp-step-nav-btn" data-action="next"${isLast ? " disabled" : ""}>Next →</button>
+        <button class="jp-step-nav-btn jp-step-nav-btn--finish">Finish</button>
       </div>
     `;
-    const prevTopBtn = topBar.querySelector<HTMLButtonElement>(".jp-step-topbar-btn-prev")!;
-    const nextTopBtn = topBar.querySelector<HTMLButtonElement>(".jp-step-topbar-btn-next")!;
-    const finishTopBtn = topBar.querySelector<HTMLButtonElement>(".jp-step-topbar-btn-primary")!;
-    prevTopBtn.addEventListener("click", () => {
-      if (catIdx === 0) {
-        this.currentStep = 0;
-        this.renderScreen("overview");
-      } else {
-        this.currentStep = catIdx;
-        this.renderScreen("step");
-      }
+    header.querySelector("[data-action='prev']")!.addEventListener("click", () => {
+      this.currentStep = catIdx === 0 ? 0 : catIdx;
+      this.renderScreen(catIdx === 0 ? "overview" : "step");
     });
-    nextTopBtn.disabled = isLast;
-    nextTopBtn.addEventListener("click", () => {
+    header.querySelector("[data-action='next']")!.addEventListener("click", () => {
       if (isLast) return;
       this.currentStep = catIdx + 2;
       this.renderScreen("step");
     });
-    finishTopBtn.addEventListener("click", () => {
-      this.currentStep = this.state.categories.length + 1;
+    header.querySelector(".jp-step-nav-btn--finish")!.addEventListener("click", () => {
+      this.currentStep = total + 1;
       this.renderScreen("decision");
     });
-    el.appendChild(topBar);
-
-    // ── Header bar ────────────────────────────────────────────────
-    const header = document.createElement("div");
-    header.className = "jp-step-header";
-    header.innerHTML = `
-      <div class="jp-step-rail-dot" data-level="${cat.riskLevel}"></div>
-      <div class="jp-step-header-text">
-        <div class="jp-step-eyebrow">Section ${catIdx + 1} of ${total} · ${cat.fileCount} file${cat.fileCount !== 1 ? "s" : ""}</div>
-        <div class="jp-step-title-row">
-          <span class="jp-step-icon">${cat.icon}</span>
-          <span class="jp-step-title">${cat.label}</span>
-          <span class="jp-step-risk-pill" data-level="${cat.riskLevel}">${cat.riskLevel}</span>
-        </div>
-        <div class="jp-step-header-summary jp-md">${md(cat.summary)}</div>
-      </div>
-    `;
     el.appendChild(header);
 
-    // ── 3-column body ─────────────────────────────────────────────
+    // ── 2-column body ─────────────────────────────────────────────
     const cols = document.createElement("div");
     cols.className = "jp-step-cols";
 
     // ── LEFT: file navigator ──────────────────────────────────────
     const leftCol = document.createElement("div");
     leftCol.className = "jp-step-col-files";
-
-    const filesLabel = document.createElement("div");
-    filesLabel.className = "jp-col-label";
-    filesLabel.textContent = "Files";
-    leftCol.appendChild(filesLabel);
 
     // Group snippets by file
     const byFile = new Map<string, { snippetIdx: number; lineStart: number }[]>();
@@ -490,7 +469,7 @@ export class JustPROverlay {
       snippetQuestions.forEach((q) => {
         const qIdx = cat.reviewQuestions.indexOf(q);
         const action = this.feedbackActions.get(`${catIdx}:${qIdx}`);
-        if (action !== "resolved" && action !== "ignored") pendingCount += 1;
+        if (!action) pendingCount += 1;
       });
       return pendingCount;
     };
@@ -570,6 +549,15 @@ export class JustPROverlay {
         });
 
         fileGroup.appendChild(rangeList);
+
+        const fileAnchorComments = this.getFileAnchorComments(fullPath);
+        if (fileAnchorComments.length > 0) {
+          const fileCommentsEl = this.buildExistingCommentsBlock("", fileAnchorComments);
+          fileCommentsEl.classList.add("jp-file-tree-comments");
+          fileCommentsEl.style.marginLeft = `${depth * 12}px`;
+          fileGroup.appendChild(fileCommentsEl);
+        }
+
         treeRoot.appendChild(fileGroup);
       });
     };
@@ -578,25 +566,19 @@ export class JustPROverlay {
     updateSnippetFeedbackBadges();
     leftCol.appendChild(treeRoot);
 
+    // ── Section summary strip ─────────────────────────────────────
+    const summaryStrip = document.createElement("div");
+    summaryStrip.className = "jp-step-summary";
+    summaryStrip.innerHTML = `<div class="jp-step-summary-text jp-md">${md(cat.summary)}</div>`;
+    el.appendChild(summaryStrip);
+
     cols.appendChild(leftCol);
 
-    // ── CENTER: single focused diff + feedback below ──────────────
+    // ── CENTER: single focused diff + findings inline ─────────────
     const centerCol = document.createElement("div");
     centerCol.className = "jp-step-col-diffs";
     const feedbackContainer = document.createElement("div");
     feedbackContainer.className = "jp-feedback-container";
-
-    // Focused review context card
-    const contextCard = document.createElement("div");
-    contextCard.className = "jp-step-context-card";
-    contextCard.innerHTML = `
-      <div class="jp-step-context-meta">
-        <div class="jp-step-context-title">Focused review</div>
-        <div class="jp-step-context-copy">Review one grouped change at a time. Code stays central, comments stay attached below it.</div>
-      </div>
-      <div class="jp-step-context-impact" data-level="${cat.riskLevel}">${cat.riskLevel} impact</div>
-    `;
-    centerCol.appendChild(contextCard);
 
     // Active diff container — swapped when left nav is clicked
     const diffFocus = document.createElement("div");
@@ -615,20 +597,18 @@ export class JustPROverlay {
 
       diffFocus.innerHTML = "";
 
-      // Diff card header
+      // File + location bar
       const cardHeader = document.createElement("div");
       cardHeader.className = "jp-diff-card-header";
       cardHeader.innerHTML = `
         <div class="jp-diff-card-meta">
-          <div class="jp-diff-card-title">${escapeHtml(s.file.split("/").pop() || s.file)}</div>
-          <div class="jp-diff-card-file">${escapeHtml(s.file)} · L${s.lineStart}</div>
+          <span class="jp-diff-card-file">${escapeHtml(s.file)} · L${s.lineStart}</span>
         </div>
         <span class="jp-step-risk-pill" data-level="${s.riskLevel ?? cat.riskLevel}">${s.riskLevel ?? cat.riskLevel}</span>
       `;
-
       diffFocus.appendChild(cardHeader);
 
-      // Explanation (once, in full)
+      // AI explanation — above the diff so reader has context before looking at code
       if (s.explanation) {
         const expEl = document.createElement("div");
         expEl.className = "jp-diff-focus-summary";
@@ -686,37 +666,26 @@ export class JustPROverlay {
       diffGrid.appendChild(afterCol);
       diffFocus.appendChild(diffGrid);
 
-      // Existing review comments matching this snippet's file/line range
+      // Inline comments — after the diff, resolved ones collapsed by default
       const snippetLineEnd = s.lineStart + Math.max(
         s.before ? s.before.split("\n").length : 0,
         s.after ? s.after.split("\n").length : 0,
       );
-      const matchingComments = this.state.existingComments.filter(c =>
-        c.path === s.file && c.line >= s.lineStart && c.line <= snippetLineEnd
-      );
-      if (matchingComments.length > 0) {
-        const commentsEl = document.createElement("div");
-        commentsEl.className = "jp-existing-comments";
-        commentsEl.innerHTML = `<div class="jp-existing-comments-label">Existing feedback</div>` +
-          matchingComments.map(c => `
-            <div class="jp-existing-comment">
-              <div class="jp-existing-comment-meta">
-                <span class="jp-existing-comment-author">${escapeHtml(c.author)}</span>
-                <span class="jp-existing-comment-line">L${c.line}</span>
-              </div>
-              <div class="jp-existing-comment-body jp-md">${md(c.body)}</div>
-            </div>
-          `).join("");
-        diffFocus.appendChild(commentsEl);
+      const inlineComments = this.getInlineCommentsForSnippet(s.file, s.lineStart, snippetLineEnd);
+      if (inlineComments.length > 0) {
+        diffFocus.appendChild(this.buildExistingCommentsBlock("", inlineComments));
       }
 
       // Per-snippet note
       const noteWrap = document.createElement("div");
       noteWrap.className = "jp-diff-card-note-wrap";
-      const existingNote = this.comments.get(key);
-      if (existingNote) {
-        noteWrap.appendChild(this.buildCommentNote(existingNote, key, noteWrap, false));
-      } else {
+      const renderNoteWrap = () => {
+        noteWrap.innerHTML = "";
+        const existingNote = this.comments.get(key);
+        if (existingNote) {
+          noteWrap.appendChild(this.buildCommentNote(existingNote, key, noteWrap, false));
+          return;
+        }
         const noteBtn = document.createElement("button");
         noteBtn.className = "jp-snippet-comment-btn";
         noteBtn.textContent = "+ Note";
@@ -726,7 +695,8 @@ export class JustPROverlay {
           noteWrap.appendChild(this.buildCommentForm(key, noteWrap, false));
         });
         noteWrap.appendChild(noteBtn);
-      }
+      };
+      renderNoteWrap();
       diffFocus.appendChild(noteWrap);
 
       // Feedback questions anchored to this snippet
@@ -788,17 +758,17 @@ export class JustPROverlay {
           const btnsRow = document.createElement("div");
           btnsRow.className = "jp-finding-btns";
 
-          // → Note: append feedback text to the snippet note (primary action)
+          // Add to draft: append feedback text to the snippet note (primary action)
           const addToNoteBtn = document.createElement("button");
           addToNoteBtn.className = "jp-finding-btn jp-finding-btn--note";
-          addToNoteBtn.textContent = "→ Note";
-          addToNoteBtn.title = "Add this to your review note for this snippet";
+          addToNoteBtn.textContent = "Add to Draft";
+          addToNoteBtn.title = "Add this finding to a draft snippet note. It will post only when you submit the review.";
 
           // Post: post as a standalone inline GitHub comment on submit
           const postBtn = document.createElement("button");
           postBtn.className = "jp-finding-btn";
-          postBtn.textContent = "Post";
-          postBtn.title = "Post this as an inline comment to the PR author on submit";
+          postBtn.textContent = "Post to GitHub";
+          postBtn.title = "Queue this exact finding as a GitHub inline comment when you submit the review.";
 
           // Dismiss: not relevant, fade it out
           const dismissBtn = document.createElement("button");
@@ -826,7 +796,8 @@ export class JustPROverlay {
               updateSnippetFeedbackBadges();
               return;
             }
-            // Append question text to the snippet note
+            // Append question text to the snippet note. This is mutually
+            // exclusive with direct posting to avoid duplicate comments.
             const existingNote = this.comments.get(key) ?? "";
             const newNote = existingNote ? `${existingNote}\n\n${q.text}` : q.text;
             this.comments.set(key, newNote);
@@ -843,6 +814,10 @@ export class JustPROverlay {
             if (current === "post") {
               this.feedbackActions.delete(actionKey);
             } else {
+              if (current === "noted") {
+                this.removeFindingFromDraftNote(key, q.text);
+                renderNoteWrap();
+              }
               this.feedbackActions.set(actionKey, "post");
             }
             applyFeedbackState();
@@ -854,6 +829,10 @@ export class JustPROverlay {
             if (current === "dismissed") {
               this.feedbackActions.delete(actionKey);
             } else {
+              if (current === "noted") {
+                this.removeFindingFromDraftNote(key, q.text);
+                renderNoteWrap();
+              }
               this.feedbackActions.set(actionKey, "dismissed");
             }
             applyFeedbackState();
@@ -912,7 +891,7 @@ export class JustPROverlay {
     header.className = "jp-decision-header";
     header.innerHTML = `
       <div class="jp-decision-eyebrow">Review Complete</div>
-      <div class="jp-decision-title">Your Decision</div>
+      <div class="jp-decision-title">Finish Review</div>
     `;
     el.appendChild(header);
 
@@ -929,6 +908,7 @@ export class JustPROverlay {
       };
       body.innerHTML = `
         <div class="jp-rec-card" data-action="${s.recommendation.action}">
+          <div class="jp-rec-label">AI recommendation</div>
           <div class="jp-rec-icon">${icons[s.recommendation.action]}</div>
           <div class="jp-rec-content">
             <div class="jp-rec-title">${titles[s.recommendation.action]}</div>
@@ -1008,8 +988,18 @@ export class JustPROverlay {
       const parts: string[] = [];
       if (noteCount  > 0) parts.push(`${noteCount} snippet note${noteCount  !== 1 ? "s" : ""}`);
       if (postCount  > 0) parts.push(`${postCount} inline post${postCount   !== 1 ? "s" : ""}`);
-      commentSummary.textContent = `${parts.join(" · ")} will be submitted`;
+      commentSummary.textContent = `${parts.join(" · ")} queued for GitHub when you submit`;
       body.appendChild(commentSummary);
+    }
+
+    const prComments = this.getPRDiscussionComments();
+    if (prComments.length > 0) {
+      const discussionTitle = document.createElement("div");
+      discussionTitle.className = "jp-sections-label";
+      discussionTitle.style.marginTop = "16px";
+      discussionTitle.textContent = "PR Discussion";
+      body.appendChild(discussionTitle);
+      body.appendChild(this.buildExistingCommentsBlock("", prComments));
     }
 
     el.appendChild(body);
@@ -1361,6 +1351,105 @@ export class JustPROverlay {
     note.appendChild(textEl);
     note.appendChild(del);
     return note;
+  }
+
+  private getPRDiscussionComments(): ExistingComment[] {
+    return this.state.existingComments.filter(c => c.anchor === "pr" || !c.path);
+  }
+
+  private getFileAnchorComments(path: string): ExistingComment[] {
+    return this.state.existingComments.filter(c => c.path === path && c.anchor === "file");
+  }
+
+  private getInlineCommentsForSnippet(path: string, lineStart: number, lineEnd: number): ExistingComment[] {
+    return this.state.existingComments.filter(c => {
+      if (c.anchor !== "inline" || c.path !== path) return false;
+      // Active inline: match on current line
+      if (c.line && c.line >= lineStart && c.line <= lineEnd) return true;
+      // Outdated inline: match on original line (best effort — same file)
+      if (c.outdated && c.originalLine && c.originalLine >= lineStart && c.originalLine <= lineEnd) return true;
+      return false;
+    });
+  }
+
+  private buildExistingCommentsBlock(title: string, comments: ExistingComment[]): HTMLElement {
+    const commentsEl = document.createElement("div");
+    commentsEl.className = "jp-existing-comments";
+    if (title) {
+      const labelEl = document.createElement("div");
+      labelEl.className = "jp-existing-comments-label";
+      labelEl.textContent = title;
+      commentsEl.appendChild(labelEl);
+    }
+
+    comments.forEach(c => {
+      const item = document.createElement("div");
+      item.className = "jp-existing-comment";
+      item.dataset.anchor = c.anchor;
+      if (c.outdated) item.dataset.outdated = "true";
+      if (c.resolved) item.dataset.resolved = "true";
+
+      const statusBadge = c.resolved
+        ? `<span class="jp-comment-status-badge jp-comment-status-badge--resolved">resolved</span>`
+        : c.outdated
+          ? `<span class="jp-comment-status-badge jp-comment-status-badge--outdated">outdated</span>`
+          : "";
+
+      const location = this.existingCommentLocation(c);
+
+      item.innerHTML = `
+        <div class="jp-existing-comment-meta">
+          <span class="jp-existing-comment-author">${escapeHtml(c.author)}</span>
+          ${statusBadge}
+          <span class="jp-existing-comment-line">${escapeHtml(location)}</span>
+        </div>
+        <div class="jp-existing-comment-body jp-md">${md(c.body)}</div>
+      `;
+
+      // Resolved comments: collapsed by default, click meta to expand
+      if (c.resolved) {
+        const body = item.querySelector<HTMLElement>(".jp-existing-comment-body")!;
+        body.style.display = "none";
+        const meta = item.querySelector<HTMLElement>(".jp-existing-comment-meta")!;
+        meta.style.cursor = "pointer";
+        meta.title = "Click to expand";
+        meta.addEventListener("click", () => {
+          const hidden = body.style.display === "none";
+          body.style.display = hidden ? "" : "none";
+          meta.title = hidden ? "Click to collapse" : "Click to expand";
+        });
+      }
+
+      commentsEl.appendChild(item);
+    });
+
+    return commentsEl;
+  }
+
+  private existingCommentLocation(comment: ExistingComment): string {
+    if (comment.outdated && comment.originalLine) return `was L${comment.originalLine}`;
+    if (comment.anchor === "inline" && comment.line) return `L${comment.line}`;
+    if (comment.path) return "file";
+    return comment.source === "review" ? "review summary" : "conversation";
+  }
+
+  private removeFindingFromDraftNote(key: string, findingText: string): void {
+    const existing = this.comments.get(key);
+    if (!existing) return;
+
+    const target = findingText.trim();
+    const parts = existing
+      .split(/\n{2,}/)
+      .map(part => part.trim())
+      .filter(Boolean);
+    const remaining = parts.filter(part => part !== target);
+
+    if (remaining.length === parts.length) return;
+    if (remaining.length === 0) {
+      this.comments.delete(key);
+      return;
+    }
+    this.comments.set(key, remaining.join("\n\n"));
   }
 
   // ── GitHub review submission ────────────────────────────────

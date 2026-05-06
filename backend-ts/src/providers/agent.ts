@@ -6,21 +6,71 @@ import { agentEnv, MODEL } from "./anthropic-client.js";
 const DEFAULT_MAX_TURNS = Number(process.env.AGENT_MAX_TURNS ?? 40);
 const SPECIALIST_MAX_TURNS = Number(process.env.AGENT_SPECIALIST_MAX_TURNS ?? 30);
 
-/** Parse newline-delimited JSON lines from a text chunk and emit valid events. */
+/**
+ * Parse JSON objects from a streaming text buffer and emit each complete one.
+ *
+ * The model is instructed to emit one JSON object per line, but may also
+ * pretty-print multi-line JSON (especially for categories with multi-line
+ * snippet strings). We scan for balanced `{...}` objects at the top level by
+ * tracking brace depth and string state — this handles both one-per-line
+ * and multi-line JSON without losing events.
+ */
 export function parseAndEmit(text: string, buf: { value: string }, emit: Emit): void {
   buf.value += text;
-  const lines = buf.value.split("\n");
-  buf.value = lines.pop() ?? "";
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      const ev = JSON.parse(trimmed) as StreamEvent;
-      if (ev.type && ev.data !== undefined) emit(ev);
-    } catch {
-      // not a JSON event line — ignore
+  const src = buf.value;
+
+  let consumed = 0;
+  let i = 0;
+  while (i < src.length) {
+    // Skip whitespace and any non-object junk between events
+    while (i < src.length && src[i] !== "{") i++;
+    if (i >= src.length) break;
+
+    const start = i;
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+    let end = -1;
+
+    for (; i < src.length; i++) {
+      const ch = src[i];
+      if (escape) { escape = false; continue; }
+      if (inString) {
+        if (ch === "\\") { escape = true; continue; }
+        if (ch === '"') { inString = false; continue; }
+        continue;
+      }
+      if (ch === '"') { inString = true; continue; }
+      if (ch === "{") depth++;
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) { end = i + 1; break; }
+      }
     }
+
+    if (end === -1) {
+      // Incomplete object — keep in buffer and wait for more chunks
+      break;
+    }
+
+    const candidate = src.slice(start, end).trim();
+    try {
+      const ev = JSON.parse(candidate) as StreamEvent;
+      if (ev.type && ev.data !== undefined) emit(ev);
+    } catch (err) {
+      // Not a valid JSON event — most commonly caused by the model
+      // emitting raw newlines inside a string value. Log so we can
+      // diagnose which events are being dropped.
+      const preview = candidate.length > 200
+        ? candidate.slice(0, 100) + "…" + candidate.slice(-80)
+        : candidate;
+      console.warn(`[agent] dropped invalid JSON event (${(err as Error).message}): ${preview}`);
+    }
+    consumed = end;
+    i = end;
   }
+
+  buf.value = src.slice(consumed);
 }
 
 /**
@@ -88,15 +138,9 @@ async function runAgentQuery(
     }
   }
 
-  // Flush any remaining buffered content
-  if (buf.value.trim()) {
-    try {
-      const ev = JSON.parse(buf.value.trim()) as StreamEvent;
-      if (ev.type && ev.data !== undefined) await emit(ev);
-    } catch {
-      // ignore partial line
-    }
-  }
+  // Final flush: parseAndEmit handles any complete objects remaining in buf.
+  // Anything left in buf.value after this is truly malformed/incomplete.
+  parseAndEmit("", buf, emit);
 }
 
 export async function analyzeWithAgentSDK(

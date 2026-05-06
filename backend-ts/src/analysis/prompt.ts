@@ -109,6 +109,9 @@ Available category IDs (only emit categories with actual changes):
 2. **Snippets must contain the COMPLETE diff hunks** — copy all removed lines into "before" and all added lines into "after". Never summarize, truncate, or paraphrase code.
 3. **fileCount must equal the number of snippets** in that category.
 4. **Emit only valid JSON lines.** No text before, between, or after the JSON objects. No markdown fences. No explanations outside of JSON.
+   - Every JSON object must be on a **single line** OR be pretty-printed with literal newlines only **between** tokens (never inside string values).
+   - Inside any string value (summary, explanation, before, after, etc.), all newlines MUST be written as the two-character escape sequence \`\\n\`. Never put a raw newline inside a string. Likewise escape backslashes as \`\\\\\` and double quotes as \`\\"\`.
+   - Before emitting each object, mentally verify that \`JSON.parse\` would accept it.
 5. **Order categories** by risk level (critical → high → medium → low).
 6. **Do not invent changes** that aren't in the diff. Only report what you see.
 7. **Use your tools** — Read, Grep, Glob — to understand the broader codebase before writing your analysis. This produces significantly better reviews.`;
@@ -188,6 +191,15 @@ Rules:
 - Snippets must contain COMPLETE diff hunks — never truncate.
 - fileCount must equal number of snippets.
 - 2-4 reviewQuestions: {"text":"...","file":"<path>","lineStart":<n>}
+
+# JSON Escaping (CRITICAL)
+
+Inside any string value (summary, explanation, before, after, reviewQuestions.text, etc.):
+- Newlines MUST be written as the two-character escape \`\\n\`. Never put a raw newline inside a string.
+- Backslashes MUST be written as \`\\\\\`. Double quotes MUST be written as \`\\"\`.
+- Tabs as \`\\t\`.
+
+Before emitting each object, mentally verify that \`JSON.parse\` would accept it. A single unescaped newline inside a string value will break the entire event.
 
 ## Line 2: Done event
 {"type":"done","data":{}}`;

@@ -67,17 +67,26 @@ export function makeAnthropicClient(): Anthropic {
 }
 
 /**
- * Env vars for the Agent SDK subprocess.
- * The subprocess speaks Anthropic API format — it cannot talk to Bedrock
- * directly. Route through LiteLLM (ANTHROPIC_BASE_URL) when available;
- * fall back to direct Anthropic API otherwise.
+ * Env vars for the Agent SDK subprocess (Claude Code binary).
+ *
+ * Bedrock: use CLAUDE_CODE_USE_BEDROCK=1 + AWS_BEARER_TOKEN_BEDROCK.
+ * This is the official way — the subprocess handles Bedrock auth natively.
+ * See: https://code.claude.com/docs/en/amazon-bedrock
+ *
+ * Direct/proxy: pass ANTHROPIC_API_KEY (+ ANTHROPIC_BASE_URL if set).
  */
 export function agentEnv(): Record<string, string> {
+  if (AI_PROVIDER === "bedrock" && BEDROCK_API_KEY) {
+    return {
+      CLAUDE_CODE_USE_BEDROCK: "1",
+      AWS_REGION: BEDROCK_REGION,
+      AWS_BEARER_TOKEN_BEDROCK: BEDROCK_API_KEY,
+      ...(process.env.ANTHROPIC_MODEL ? { ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL } : {}),
+    };
+  }
   if (ANTHROPIC_BASE_URL) {
     return { ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL };
   }
-  // No proxy: use ANTHROPIC_API_KEY against api.anthropic.com directly.
-  // (Bedrock-only setups without a proxy cannot use the Agent SDK.)
   return { ANTHROPIC_API_KEY };
 }
 

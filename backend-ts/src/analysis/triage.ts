@@ -25,8 +25,12 @@ export async function triage(apiKey: string, files: PRFile[]): Promise<TriageRes
     messages: [{ role: "user", content: buildTriagePrompt(files) }],
   });
 
+  if (!msg.content || msg.content.length === 0) {
+    console.error("[triage] unexpected response shape:", JSON.stringify(msg).slice(0, 500));
+    throw new Error("triage: empty content array");
+  }
   const block = msg.content[0];
-  if (block.type !== "text") throw new Error("triage: unexpected content type");
+  if (block.type !== "text") throw new Error(`triage: unexpected content type: ${block.type}`);
 
   return parseTriageResponse(block.text);
 }

@@ -1,10 +1,17 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { AnthropicBedrock } from "@anthropic-ai/bedrock-sdk";
 
 const USE_BEDROCK = process.env.CLAUDE_CODE_USE_BEDROCK === "1";
 const AWS_REGION = process.env.AWS_REGION ?? "us-east-1";
 const AWS_BEARER_TOKEN_BEDROCK = process.env.AWS_BEARER_TOKEN_BEDROCK ?? "";
 const ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL ?? "";
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? "";
+
+/**
+ * Minimal interface of the messages.create call we use, so triage/pipeline
+ * can accept either Anthropic or AnthropicBedrock without TS complaints.
+ */
+export type AnthropicLike = Pick<Anthropic, "messages">;
 
 /** Add "us." cross-region prefix to bare "anthropic.*" Bedrock model IDs. */
 function bedrockModelID(model: string): string {
@@ -42,17 +49,16 @@ export function resolveModel(): string {
 
 /**
  * Build an Anthropic SDK client for direct (non-agent) calls.
- * - Bedrock: Bearer token auth against bedrock-runtime endpoint
- * - LiteLLM proxy: ANTHROPIC_API_KEY + baseURL
- * - Default: direct Anthropic API
+ * - Bedrock: use @anthropic-ai/bedrock-sdk (handles AWS request format)
+ * - LiteLLM proxy: @anthropic-ai/sdk + baseURL
+ * - Default: @anthropic-ai/sdk against api.anthropic.com
  */
-export function makeAnthropicClient(): Anthropic {
+export function makeAnthropicClient(): AnthropicLike {
   if (USE_BEDROCK) {
-    return new Anthropic({
-      apiKey: "bedrock",
-      authToken: AWS_BEARER_TOKEN_BEDROCK || null,
-      baseURL: `https://bedrock-runtime.${AWS_REGION}.amazonaws.com`,
-    });
+    return new AnthropicBedrock({
+      apiKey: AWS_BEARER_TOKEN_BEDROCK || undefined,
+      awsRegion: AWS_REGION,
+    }) as unknown as AnthropicLike;
   }
   if (ANTHROPIC_BASE_URL) {
     return new Anthropic({ apiKey: ANTHROPIC_API_KEY, baseURL: ANTHROPIC_BASE_URL });

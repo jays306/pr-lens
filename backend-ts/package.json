@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@anthropic-ai/bedrock-sdk": "^0.29.1",
     "@anthropic-ai/claude-agent-sdk": "latest",
     "@anthropic-ai/sdk": "latest",
     "@hono/node-server": "^2.0.1",

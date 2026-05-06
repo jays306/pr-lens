@@ -9,6 +9,8 @@ import { resolveGitHubToken } from "../token.js";
 import type { StreamEvent, ExistingComment } from "../analysis/types.js";
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? "";
+const USE_BEDROCK = process.env.CLAUDE_CODE_USE_BEDROCK === "1";
+const HAS_AI_BACKEND = Boolean(ANTHROPIC_API_KEY || USE_BEDROCK);
 const CLONE_REPOS = process.env.CLONE_REPOS !== "false"; // default true
 
 export function makeAnalyzeHandler(cache: Cache, defaultToken: string) {
@@ -110,13 +112,15 @@ export function makeAnalyzeHandler(cache: Cache, defaultToken: string) {
       try {
         const collected: StreamEvent[] = [];
         const collectingEmit = async (ev: StreamEvent) => {
+          // Handler owns the final "done" event — suppress any upstream ones.
+          if (ev.type === "done") return;
           collected.push(ev);
           await emit(ev);
         };
 
         const prFilesResult = await ghClient.fetchPRFiles(ref).catch(() => []);
 
-        if (ANTHROPIC_API_KEY && prFilesResult.length > 0) {
+        if (HAS_AI_BACKEND && prFilesResult.length > 0) {
           await runPipeline(
             ANTHROPIC_API_KEY,
             diff,

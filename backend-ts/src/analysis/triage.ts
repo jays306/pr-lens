@@ -56,7 +56,8 @@ Every file must be assigned to exactly one category. Helm/Kubernetes/Docker/CI f
 
 Respond with ONLY a valid JSON object mapping category names to arrays of filenames.
 Example: {"dependencies":["go.mod","go.sum"],"logic":["pkg/worker.go"]}
-No explanation. No markdown. Only the JSON object.`;
+
+Your entire response must be the single JSON object — starting with \`{\` and ending with \`}\`. No preamble, no explanation after, no markdown fences, no extra paragraphs. If you find yourself tempted to write commentary, stop and just emit the JSON.`;
 }
 
 function buildTriagePrompt(files: PRFile[]): string {
@@ -67,7 +68,8 @@ function buildTriagePrompt(files: PRFile[]): string {
 
 function parseTriageResponse(raw: string): TriageResult {
   let text = raw.trim();
-  // Strip markdown code fences if present
+
+  // Strip markdown code fences if present.
   if (text.startsWith("```")) {
     text = text
       .split("\n")
@@ -75,11 +77,44 @@ function parseTriageResponse(raw: string): TriageResult {
       .join("\n")
       .trim();
   }
-  const result: Record<string, string[]> = JSON.parse(text);
-  // Filter out unknown categories
+
+  // Haiku sometimes appends explanatory prose after the JSON (e.g. a second
+  // paragraph describing the classification). Extract just the first
+  // balanced top-level JSON object by tracking brace depth and string state.
+  const jsonBody = extractFirstJsonObject(text);
+  if (!jsonBody) {
+    console.error("[triage] no JSON object found in response:", text.slice(0, 300));
+    throw new Error("triage: no JSON object in response");
+  }
+
+  const result: Record<string, string[]> = JSON.parse(jsonBody);
   const out: TriageResult = {};
   for (const [cat, files] of Object.entries(result)) {
-    if (VALID_CATEGORIES.has(cat)) out[cat] = files;
+    if (VALID_CATEGORIES.has(cat) && Array.isArray(files)) out[cat] = files;
   }
   return out;
+}
+
+function extractFirstJsonObject(text: string): string | null {
+  const start = text.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) { escape = false; continue; }
+    if (inString) {
+      if (ch === "\\") { escape = true; continue; }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
 }

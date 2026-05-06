@@ -3,6 +3,9 @@ import type { StreamEvent, Emit, ExistingComment } from "../analysis/types.js";
 import { systemPrompt, userPrompt } from "../analysis/prompt.js";
 import { agentEnv, MODEL } from "./anthropic-client.js";
 
+const DEFAULT_MAX_TURNS = Number(process.env.AGENT_MAX_TURNS ?? 40);
+const SPECIALIST_MAX_TURNS = Number(process.env.AGENT_SPECIALIST_MAX_TURNS ?? 30);
+
 /** Parse newline-delimited JSON lines from a text chunk and emit valid events. */
 export function parseAndEmit(text: string, buf: { value: string }, emit: Emit): void {
   buf.value += text;
@@ -106,7 +109,7 @@ export async function analyzeWithAgentSDK(
     userPrompt(diff, existingComments),
     systemPrompt(),
     cloneDir,
-    25,
+    DEFAULT_MAX_TURNS,
     emit,
   );
 }
@@ -124,7 +127,7 @@ export async function analyzeSpecialistWithAgentSDK(
     userPrompt(filteredDiff, existingComments),
     specialistSysPrompt,
     cloneDir,
-    15,
+    SPECIALIST_MAX_TURNS,
     emit,
   );
 }

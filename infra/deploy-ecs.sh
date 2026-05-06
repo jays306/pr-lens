@@ -21,17 +21,35 @@ if [[ -z "${VPC_ID}" || "${VPC_ID}" == "None" ]]; then
   exit 1
 fi
 
-# Two subnets (Fargate requires subnets; default VPC usually has two+)
-RAW_SUBNETS="$(aws ec2 describe-subnets \
-  --filters "Name=vpc-id,Values=${VPC_ID}" \
-  --query 'Subnets[0:2].SubnetId' --output text --region "${REGION}")"
-FIRST="$(echo "${RAW_SUBNETS}" | awk '{print $1}')"
-SECOND="$(echo "${RAW_SUBNETS}" | awk '{print $2}')"
-if [[ -z "${FIRST}" || -z "${SECOND}" ]]; then
-  echo "Need at least two subnets in VPC ${VPC_ID}. Got: ${RAW_SUBNETS:-empty}" >&2
-  exit 1
+# Two subnets in different AZs (ALB requires this). Prefer private subnets; fall back to any.
+if [[ -z "${SUBNET_OVERRIDES:-}" ]]; then
+  SUBNET_JSON="$(aws ec2 describe-subnets \
+    --filters "Name=vpc-id,Values=${VPC_ID}" "Name=tag:Name,Values=*private*" \
+    --query 'Subnets[*].{id:SubnetId,az:AvailabilityZone}' --output json --region "${REGION}")"
+  if [[ -z "${SUBNET_JSON}" || "${SUBNET_JSON}" == "[]" ]]; then
+    SUBNET_JSON="$(aws ec2 describe-subnets \
+      --filters "Name=vpc-id,Values=${VPC_ID}" \
+      --query 'Subnets[*].{id:SubnetId,az:AvailabilityZone}' --output json --region "${REGION}")"
+  fi
+  # Pick one subnet per AZ
+  FIRST="$(echo "${SUBNET_JSON}" | python3 -c "
+import json,sys
+subnets=json.load(sys.stdin)
+seen={}
+for s in subnets:
+  if s['az'] not in seen:
+    seen[s['az']]=s['id']
+  if len(seen)==2: break
+print(' '.join(list(seen.values())))
+")"
+  SECOND="$(echo "${FIRST}" | awk '{print $2}')"
+  FIRST="$(echo "${FIRST}" | awk '{print $1}')"
+  if [[ -z "${FIRST}" || -z "${SECOND}" ]]; then
+    echo "Need at least two subnets in different AZs in VPC ${VPC_ID}." >&2
+    exit 1
+  fi
+  SUBNET_OVERRIDES="${FIRST},${SECOND}"
 fi
-SUBNET_OVERRIDES="${FIRST},${SECOND}"
 
 # Internal ALB mickey-sandbox (private IPs only); default same subnets as ECS tasks.
 ALB_SUBNET_OVERRIDES="${ALB_SUBNET_OVERRIDES:-${SUBNET_OVERRIDES}}"
@@ -49,7 +67,7 @@ fi
 
 SECRET_ARN="${SECRET_ARN:-arn:aws:secretsmanager:us-east-1:200033215230:secret:mickey-LWj9eF}"
 IMAGE_URI="${IMAGE_URI:-200033215230.dkr.ecr.us-east-1.amazonaws.com/mickey/pr-lens:latest}"
-# X86_64 matches the current ECR image (linux/amd64); use ARM64 after pushing a multi-arch or arm64 image.
+# X86_64 matches linux/amd64 images built with `docker buildx build --platform linux/amd64`.
 TASK_CPU_ARCH="${TASK_CPU_ARCH:-X86_64}"
 CERTIFICATE_ARN="${CERTIFICATE_ARN:-arn:aws:acm:us-east-1:200033215230:certificate/f9c19a5e-0b28-4270-8048-282595aa2d67}"
 
@@ -59,11 +77,20 @@ echo "Stack:         ${STACK_NAME}"
 echo "VPC:           ${VPC_ID}"
 echo "Task subnets:  ${SUBNET_OVERRIDES}"
 echo "ALB subnets:   ${ALB_SUBNET_OVERRIDES} (internal ALB)"
-echo "ALB client SG: ${INTERNAL_ALB_CLIENT_CIDR}"
+echo "ALB client:    ${INTERNAL_ALB_CLIENT_CIDR}"
 echo "Secret ARN:    ${SECRET_ARN}"
 echo "Image:         ${IMAGE_URI}"
 echo "Task CPU:      ${TASK_CPU_ARCH}"
 echo "ACM cert:      ${CERTIFICATE_ARN}"
+echo
+echo "Env injected by task definition:"
+echo "  CLAUDE_CODE_USE_BEDROCK=1  AWS_REGION=us-east-1"
+echo "  ANTHROPIC_MODEL=anthropic.claude-opus-4-7"
+echo "  AGENT_MAX_TURNS=40  AGENT_SPECIALIST_MAX_TURNS=30"
+echo "  CLONE_REPOS=true  PORT=9000"
+echo "Secrets from ${SECRET_ARN}:"
+echo "  AWS_BEARER_TOKEN_BEDROCK ← BEDROCK_API_KEY"
+echo "  GITHUB_TOKEN             ← GITHUB_TOKEN"
 echo
 
 aws cloudformation deploy \

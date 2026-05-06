@@ -11,7 +11,8 @@ Parameters:
     Type: String
     Default: arn:aws:secretsmanager:us-east-1:200033215230:secret:mickey-LWj9eF
     Description: >
-      Secrets Manager secret ARN (JSON with GITHUB_TOKEN, ANTHROPIC_API_KEY, OPENAI_API_KEY).
+      Secrets Manager secret ARN (JSON with GITHUB_TOKEN, BEDROCK_API_KEY).
+      The BEDROCK_API_KEY value is injected as AWS_BEARER_TOKEN_BEDROCK into the container.
       If deploy fails on secret resolution, copy the full ARN from the console (includes suffix).
 
   VpcId:
@@ -57,6 +58,14 @@ Parameters:
       use X86_64 after pushing an image built with: docker buildx build --platform linux/amd64
 
 Resources:
+  EcsCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Ref ClusterName
+      CapacityProviders:
+        - FARGATE
+        - FARGATE_SPOT
+
   AlbSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -69,10 +78,20 @@ Resources:
           CidrIp: !Ref InternalAlbClientCidr
           Description: HTTPS from allowed CIDR (internal ALB; no public IP)
         - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 10.15.0.0/16
+          Description: HTTPS from 10.15.0.0/16
+        - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
           CidrIp: !Ref InternalAlbClientCidr
           Description: HTTP redirect to HTTPS
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 10.15.0.0/16
+          Description: HTTP redirect to HTTPS from 10.15.0.0/16
       SecurityGroupEgress:
         - IpProtocol: '-1'
           CidrIp: 0.0.0.0/0
@@ -183,8 +202,9 @@ Resources:
     Type: AWS::ECS::TaskDefinition
     Properties:
       Family: mickey-pr-lens
-      Cpu: '256'
-      Memory: '512'
+      # Node.js + Agent SDK binary (~240 MB) + git; bump memory if OOM.
+      Cpu: '512'
+      Memory: '1024'
       NetworkMode: awsvpc
       RequiresCompatibilities:
         - FARGATE
@@ -200,23 +220,38 @@ Resources:
             - ContainerPort: 9000
               Protocol: tcp
           Environment:
-            - Name: AI_PROVIDER
-              Value: claude
-            - Name: ANTHROPIC_BASE_URL
-              Value: https://litellm.justworksai.net
+            # ── Bedrock auth (official Claude Code env vars) ──────────────
+            - Name: CLAUDE_CODE_USE_BEDROCK
+              Value: '1'
+            - Name: AWS_REGION
+              Value: us-east-1
+            # ── Model ─────────────────────────────────────────────────────
             - Name: ANTHROPIC_MODEL
-              Value: claude-opus-4-7
+              Value: anthropic.claude-opus-4-7
+            # ── Agent SDK tuning ──────────────────────────────────────────
+            - Name: AGENT_MAX_TURNS
+              Value: '40'
+            - Name: AGENT_SPECIALIST_MAX_TURNS
+              Value: '30'
+            # ── Repo cloning for full codebase context ────────────────────
+            - Name: CLONE_REPOS
+              Value: 'true'
+            # ── Server ────────────────────────────────────────────────────
             - Name: PORT
               Value: '9000'
             - Name: CORS_ORIGINS
               Value: '*'
+            - Name: NODE_ENV
+              Value: production
           Secrets:
+            # BEDROCK_API_KEY stored in Secrets Manager; injected under the
+            # name the Claude Code binary expects: AWS_BEARER_TOKEN_BEDROCK.
+            - Name: AWS_BEARER_TOKEN_BEDROCK
+              ValueFrom: !Sub '${SecretArn}:BEDROCK_API_KEY::'
+            # Optional: GitHub token for private repos. Extension can also
+            # send per-request via Authorization: Bearer header.
             - Name: GITHUB_TOKEN
               ValueFrom: !Sub '${SecretArn}:GITHUB_TOKEN::'
-            - Name: ANTHROPIC_API_KEY
-              ValueFrom: !Sub '${SecretArn}:ANTHROPIC_API_KEY::'
-            - Name: OPENAI_API_KEY
-              ValueFrom: !Sub '${SecretArn}:OPENAI_API_KEY::'
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -229,6 +264,7 @@ Resources:
     DependsOn:
       - LogGroup
       - AlbHttpsListener
+      - EcsCluster
     Properties:
       ServiceName: pr-lens-v2
       Cluster: !Ref ClusterName

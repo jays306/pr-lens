@@ -877,6 +877,10 @@
   border-bottom: 1px solid var(--border);
   background: rgba(200,131,58,0.025);
   flex-shrink: 0;
+  /* Cap summary height and let it scroll, so the snippet columns below
+     always get enough room to show diff rows. */
+  max-height: 35vh;
+  overflow-y: auto;
 }
 
 .jp-step-summary-text {

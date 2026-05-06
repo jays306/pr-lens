@@ -6,6 +6,7 @@ import { Cache, cacheKey } from "../cache/cache.js";
 import { runPipeline } from "../analysis/pipeline.js";
 import { analyzeWithAgentSDK } from "../providers/agent.js";
 import { resolveGitHubToken } from "../token.js";
+import { hunksByFile, inferLineStart } from "../analysis/diff.js";
 import type { StreamEvent, ExistingComment } from "../analysis/types.js";
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? "";
@@ -109,13 +110,18 @@ export function makeAnalyzeHandler(cache: Cache, defaultToken: string) {
       // (Agent SDK will still work, just without repo context)
       const cwd = cloneDir ?? process.cwd();
 
+      // Pre-compute hunk ranges once so we can backfill missing lineStart
+      // on snippets from any path (pipeline, specialist, or fallback).
+      const hunkMap = hunksByFile(diff);
+
       try {
         const collected: StreamEvent[] = [];
         const collectingEmit = async (ev: StreamEvent) => {
           // Handler owns the final "done" event — suppress any upstream ones.
           if (ev.type === "done") return;
-          collected.push(ev);
-          await emit(ev);
+          const enriched = ev.type === "category" ? enrichCategory(ev, hunkMap) : ev;
+          collected.push(enriched);
+          await emit(enriched);
         };
 
         const prFilesResult = await ghClient.fetchPRFiles(ref).catch(() => []);
@@ -140,5 +146,60 @@ export function makeAnalyzeHandler(cache: Cache, defaultToken: string) {
         if (cleanup) await cleanup().catch(() => {});
       }
     });
+  };
+}
+
+/**
+ * Backfill missing snippet fields that models sometimes omit:
+ * - lineStart — infer from matching the snippet's `after` text against the
+ *   diff's hunk headers for that file; prevents frontend "Lundefined" / NaN.
+ * - riskLevel — default to the category's riskLevel.
+ * - reviewQuestions.lineStart — copy from the first snippet with matching file.
+ * Idempotent: already-valid values are preserved.
+ */
+function enrichCategory(
+  ev: StreamEvent,
+  hunkMap: Record<string, Array<{ start: number; afterSnippet: string }>>,
+): StreamEvent {
+  const data = ev.data as {
+    snippets?: Array<Record<string, unknown>>;
+    riskLevel?: string;
+    reviewQuestions?: Array<Record<string, unknown>>;
+  };
+  const categoryRisk = typeof data.riskLevel === "string" ? data.riskLevel : "medium";
+
+  const snippets = (data.snippets ?? []).map((s) => {
+    const out = { ...s };
+    const rawLine = out.lineStart;
+    const lineNum =
+      typeof rawLine === "number" && Number.isFinite(rawLine) ? rawLine : NaN;
+    if (!Number.isFinite(lineNum) || lineNum <= 0) {
+      const file = typeof out.file === "string" ? out.file : "";
+      const after = typeof out.after === "string" ? out.after : "";
+      const hunks = hunkMap[file] ?? [];
+      const inferred = inferLineStart(after, hunks);
+      out.lineStart = inferred > 0 ? inferred : 1;
+    }
+    if (typeof out.riskLevel !== "string") out.riskLevel = categoryRisk;
+    return out;
+  });
+
+  const reviewQuestions = (data.reviewQuestions ?? []).map((q) => {
+    const out = { ...q };
+    const lineNum =
+      typeof out.lineStart === "number" && Number.isFinite(out.lineStart)
+        ? out.lineStart
+        : NaN;
+    if (!Number.isFinite(lineNum) || lineNum <= 0) {
+      const file = typeof out.file === "string" ? out.file : "";
+      const match = snippets.find((s) => s.file === file);
+      if (match && typeof match.lineStart === "number") out.lineStart = match.lineStart;
+    }
+    return out;
+  });
+
+  return {
+    type: ev.type,
+    data: { ...data, snippets, reviewQuestions },
   };
 }

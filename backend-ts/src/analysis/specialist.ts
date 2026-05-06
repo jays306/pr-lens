@@ -39,5 +39,6 @@ export async function runSpecialist(
     emit,
   );
 
+  // Handler enriches snippets with missing lineStart/riskLevel downstream.
   return collected.filter((ev) => ev.type === "category");
 }

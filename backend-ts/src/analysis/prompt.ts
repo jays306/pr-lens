@@ -83,15 +83,18 @@ Available category IDs (only emit categories with actual changes):
 
 ### Category summary guidelines:
 - Use markdown. Reference specific files with backticks.
-- Explain the *intent* behind the changes, not just what changed
-- Flag any patterns that concern you (missing error handling, implicit coupling, etc.)
-- Reference context you found via Read/Grep/Glob when relevant
+- Start with a one-sentence TL;DR that names the category's purpose across all its files.
+- Then explain the *intent* behind the changes, not just what changed.
+- When the category has multiple files, briefly mention each file's role (1 short sentence per file, e.g. a bullet list).
+- Flag any patterns that concern you (missing error handling, implicit coupling, etc.).
+- Reference context you found via Read/Grep/Glob when relevant.
 
 ### Review questions guidelines:
-- 2-4 questions per category
-- Ask about things that can't be determined from the diff alone (intent, edge cases, production behavior)
-- Frame as "Have you considered..." or "What happens when..." — not yes/no questions
-- Each question MUST reference the specific file and line it relates to
+- Questions are **per snippet** (per file/hunk), not per category. Every snippet should have **at least one** question, and snippets with notable risk or subtle behavior should have 2–3.
+- Target total: **roughly one question per snippet**, with extra on risky snippets. Do not collapse multiple snippets into a single generic question.
+- Ask about things that can't be determined from the diff alone (intent, edge cases, production behavior).
+- Frame as "Have you considered..." or "What happens when..." — not yes/no questions.
+- Each question MUST set \`file\` and \`lineStart\` to values that **exactly match** an existing snippet in this category (so the frontend can attach it to the right diff).
 
 ## 5. Recommendation
 {"type":"recommendation","data":{"action":"approve|request_changes|needs_review","reason":"<markdown: 2-3 sentences explaining your recommendation>"}}
@@ -189,8 +192,20 @@ Emit exactly TWO JSON lines. Each must be valid JSON with "type" and "data" fiel
 Rules:
 - EVERY file in the diff must appear as a snippet.
 - Snippets must contain COMPLETE diff hunks — never truncate.
+- Every snippet MUST set \`lineStart\` (from the \`+\` side of the hunk header \`@@ -x,y +a,b @@\` — use \`a\`) and \`riskLevel\` (low|medium|high|critical for THAT change).
 - fileCount must equal number of snippets.
-- 2-4 reviewQuestions: {"text":"...","file":"<path>","lineStart":<n>}
+
+Summary (category-level, markdown):
+- Start with a one-sentence TL;DR for this category.
+- When multiple files are in scope, list each file's role in 1 short bullet.
+- Reference context you found via Read/Grep/Glob when relevant.
+
+Review questions — per snippet, not per category:
+- Emit at least one reviewQuestion per snippet; snippets with subtle or risky behavior get 2–3.
+- Target total: **roughly one question per snippet**, not a fixed "2–4 per category".
+- Each question MUST set \`file\` and \`lineStart\` to values that exactly match one of the snippets above.
+- Shape: {"text":"...","file":"<path>","lineStart":<n>}
+- Ask about intent, edge cases, production behavior — not yes/no questions.
 
 # JSON Escaping (CRITICAL)
 

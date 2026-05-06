@@ -1,8 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { StreamEvent, Emit, ExistingComment } from "../analysis/types.js";
 import { systemPrompt, userPrompt } from "../analysis/prompt.js";
-
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
+import { agentEnv, MODEL } from "./anthropic-client.js";
 
 /** Parse newline-delimited JSON lines from a text chunk and emit valid events. */
 export function parseAndEmit(text: string, buf: { value: string }, emit: Emit): void {
@@ -40,6 +39,7 @@ export async function analyzeWithAgentSDK(
       maxTurns: 25,
       permissionMode: "bypassPermissions",
       settingSources: [],
+      env: agentEnv(),
     },
   });
 
@@ -89,6 +89,7 @@ export async function analyzeSpecialistWithAgentSDK(
       maxTurns: 15,
       permissionMode: "bypassPermissions",
       settingSources: [],
+      env: agentEnv(),
     },
   });
 

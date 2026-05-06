@@ -1,5 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
 import type { PRFile, TriageResult } from "./types.js";
+import { makeAnthropicClient } from "../providers/anthropic-client.js";
 
 const TRIAGE_MODEL = "claude-haiku-4-5-20251001";
 
@@ -11,7 +11,8 @@ const VALID_CATEGORIES = new Set([
 export async function triage(apiKey: string, files: PRFile[]): Promise<TriageResult> {
   if (files.length === 0) return {};
 
-  const client = new Anthropic({ apiKey });
+  void apiKey; // kept for signature compatibility; client is built from env
+  const client = makeAnthropicClient();
 
   const msg = await client.messages.create({
     model: TRIAGE_MODEL,

@@ -3,9 +3,7 @@ import { runSpecialist } from "./specialist.js";
 import { analyzeWithAgentSDK } from "../providers/agent.js";
 import { summarySystemPrompt } from "./prompt.js";
 import type { PRFile, StreamEvent, ExistingComment, TriageResult, Emit } from "./types.js";
-import Anthropic from "@anthropic-ai/sdk";
-
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
+import { makeAnthropicClient, MODEL } from "../providers/anthropic-client.js";
 
 function aboveThreshold(files: PRFile[], diff: string): boolean {
   if (files.length >= 2) return true;
@@ -24,7 +22,8 @@ async function runSummaryCall(
   triageResult: TriageResult,
   condensedDiff: string,
 ): Promise<StreamEvent[]> {
-  const client = new Anthropic({ apiKey });
+  void apiKey;
+  const client = makeAnthropicClient();
 
   let prompt = "# Triage classification\n\n";
   for (const [cat, files] of Object.entries(triageResult)) {
@@ -65,7 +64,8 @@ async function runRecommendationCall(
   apiKey: string,
   categoryEvents: StreamEvent[],
 ): Promise<StreamEvent[]> {
-  const client = new Anthropic({ apiKey });
+  void apiKey;
+  const client = makeAnthropicClient();
 
   let prompt = "Based on the following category analysis, provide a final recommendation.\n\n";
   for (const ev of categoryEvents) {

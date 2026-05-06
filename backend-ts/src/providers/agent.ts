@@ -20,33 +20,61 @@ export function parseAndEmit(text: string, buf: { value: string }, emit: Emit): 
   }
 }
 
-export async function analyzeWithAgentSDK(
-  diff: string,
+/**
+ * Extract incremental text from a partial (stream_event) SDK message.
+ * These arrive as raw Anthropic API streaming events; we only care about text deltas.
+ */
+function extractPartialText(msg: unknown): string | null {
+  if (typeof msg !== "object" || msg === null) return null;
+  const m = msg as {
+    type?: string;
+    event?: { type?: string; delta?: { type?: string; text?: string } };
+  };
+  if (m.type !== "stream_event" || !m.event) return null;
+  if (m.event.type !== "content_block_delta") return null;
+  if (m.event.delta?.type !== "text_delta") return null;
+  return m.event.delta.text ?? null;
+}
+
+async function runAgentQuery(
+  prompt: string,
+  sysPrompt: string,
   cloneDir: string,
-  existingComments: ExistingComment[],
+  maxTurns: number,
   emit: Emit,
 ): Promise<void> {
-  const prompt = userPrompt(diff, existingComments);
   const buf = { value: "" };
+  let sawPartial = false;
 
   const stream = query({
     prompt,
     options: {
       cwd: cloneDir,
       allowedTools: ["Read", "Grep", "Glob"],
-      systemPrompt: systemPrompt(),
+      systemPrompt: sysPrompt,
       model: MODEL,
-      maxTurns: 25,
+      maxTurns,
       maxThinkingTokens: 0,
       permissionMode: "bypassPermissions",
       settingSources: [],
+      includePartialMessages: true,
       env: agentEnv(),
     },
   });
 
   for await (const msg of stream) {
-    if (msg.type === "assistant") {
-      const content = (msg.message as { content?: Array<{ type: string; text?: string }> })?.content;
+    // Real-time text deltas as the model generates them
+    const delta = extractPartialText(msg);
+    if (delta !== null) {
+      sawPartial = true;
+      parseAndEmit(delta, buf, emit);
+      continue;
+    }
+
+    // Fallback: if the backend didn't emit partials, parse completed turns
+    if (!sawPartial && (msg as { type?: string }).type === "assistant") {
+      const content = (msg as { message?: { content?: Array<{ type: string; text?: string }> } })
+        .message?.content;
       if (content) {
         for (const block of content) {
           if (block.type === "text" && block.text) {
@@ -68,42 +96,35 @@ export async function analyzeWithAgentSDK(
   }
 }
 
-/** Specialist variant: same agent but with filtered diff and specialist system prompt. */
+export async function analyzeWithAgentSDK(
+  diff: string,
+  cloneDir: string,
+  existingComments: ExistingComment[],
+  emit: Emit,
+): Promise<void> {
+  await runAgentQuery(
+    userPrompt(diff, existingComments),
+    systemPrompt(),
+    cloneDir,
+    25,
+    emit,
+  );
+}
+
+/** Specialist variant: filtered diff + specialist system prompt. */
 export async function analyzeSpecialistWithAgentSDK(
-  categoryID: string,
+  _categoryID: string,
   filteredDiff: string,
   cloneDir: string,
   existingComments: ExistingComment[],
   specialistSysPrompt: string,
   emit: Emit,
 ): Promise<void> {
-  const prompt = userPrompt(filteredDiff, existingComments);
-  const buf = { value: "" };
-
-  const stream = query({
-    prompt,
-    options: {
-      cwd: cloneDir,
-      allowedTools: ["Read", "Grep", "Glob"],
-      systemPrompt: specialistSysPrompt,
-      model: MODEL,
-      maxTurns: 15,
-      permissionMode: "bypassPermissions",
-      settingSources: [],
-      env: agentEnv(),
-    },
-  });
-
-  for await (const msg of stream) {
-    if (msg.type === "assistant") {
-      const content = (msg.message as { content?: Array<{ type: string; text?: string }> })?.content;
-      if (content) {
-        for (const block of content) {
-          if (block.type === "text" && block.text) {
-            parseAndEmit(block.text, buf, emit);
-          }
-        }
-      }
-    }
-  }
+  await runAgentQuery(
+    userPrompt(filteredDiff, existingComments),
+    specialistSysPrompt,
+    cloneDir,
+    15,
+    emit,
+  );
 }

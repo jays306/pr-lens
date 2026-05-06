@@ -131,47 +131,52 @@ export async function runPipeline(
     return;
   }
 
-  // Stage 2: parallel summary + specialists
+  // Stage 2: kick off summary + all specialists in parallel. Each specialist
+  // emits its category event as soon as it finishes, so the frontend sees
+  // categories populate progressively instead of all appearing at the end.
+  const summaryStart = Date.now();
+  const specialistStart = Date.now();
+
   const summaryPromise = runSummaryCall(apiKey, triageResult, first2000Lines(diff))
-    .catch((err) => { console.error("[pipeline] summary error:", err); return [] as StreamEvent[]; });
+    .then(async (events) => {
+      console.log(`[pipeline] summary done in ${Date.now() - summaryStart}ms`);
+      for (const ev of events) await emit(ev);
+    })
+    .catch((err) => { console.error("[pipeline] summary error:", err); });
 
-  const specialistPromises = Object.entries(triageResult).map(([cat, files]) =>
-    runSpecialist(cat, files, diff, cloneDir, existingComments)
-      .catch((err) => {
-        console.error(`[pipeline] specialist ${cat} error:`, err);
-        return [] as StreamEvent[];
+  const seenCategories = new Set<string>();
+  const allCategoryEvents: StreamEvent[] = [];
+
+  const specialistPromises = Object.entries(triageResult).map(([cat, files]) => {
+    const t = Date.now();
+    return runSpecialist(cat, files, diff, cloneDir, existingComments)
+      .then(async (events) => {
+        console.log(`[pipeline] specialist ${cat} done in ${Date.now() - t}ms (${files.length} files)`);
+        for (const ev of events) {
+          if (ev.type !== "category") continue;
+          const id = ev.data.id as string;
+          if (id && seenCategories.has(id)) continue;
+          if (id) seenCategories.add(id);
+          allCategoryEvents.push(ev);
+          await emit(ev);
+        }
       })
-  );
-
-  // Emit summary events as they arrive
-  const summaryEvents = await summaryPromise;
-  for (const ev of summaryEvents) await emit(ev);
-
-  // Collect and sort category events
-  const allSpecialistEvents = await Promise.all(specialistPromises);
-  let categoryEvents: StreamEvent[] = allSpecialistEvents.flat().filter((ev) => ev.type === "category");
-
-  // Deduplicate by category ID
-  const seen = new Set<string>();
-  categoryEvents = categoryEvents.filter((ev) => {
-    const id = ev.data.id as string;
-    if (seen.has(id)) return false;
-    seen.add(id);
-    return true;
+      .catch((err) => { console.error(`[pipeline] specialist ${cat} error:`, err); });
   });
 
-  // Sort highest risk first
-  categoryEvents.sort((a, b) => {
-    const ra = RISK_RANK[a.data.riskLevel as string] ?? 3;
-    const rb = RISK_RANK[b.data.riskLevel as string] ?? 3;
-    return ra - rb;
-  });
+  // Wait for summary + all specialists to complete (events already emitted).
+  await Promise.all([summaryPromise, ...specialistPromises]);
+  console.log(`[pipeline] all specialists done in ${Date.now() - specialistStart}ms`);
 
-  for (const ev of categoryEvents) await emit(ev);
-
-  // Recommendation
-  if (categoryEvents.length > 0) {
-    const recEvents = await runRecommendationCall(apiKey, categoryEvents)
+  // Recommendation (after all categories are known).
+  if (allCategoryEvents.length > 0) {
+    // Sort by risk so the recommendation call sees highest-risk categories first.
+    const ranked = [...allCategoryEvents].sort((a, b) => {
+      const ra = RISK_RANK[a.data.riskLevel as string] ?? 3;
+      const rb = RISK_RANK[b.data.riskLevel as string] ?? 3;
+      return ra - rb;
+    });
+    const recEvents = await runRecommendationCall(apiKey, ranked)
       .catch((err) => { console.error("[pipeline] recommendation error:", err); return [] as StreamEvent[]; });
     for (const ev of recEvents) await emit(ev);
   }

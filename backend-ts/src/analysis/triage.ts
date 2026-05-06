@@ -1,7 +1,11 @@
 import type { PRFile, TriageResult } from "./types.js";
 import { makeAnthropicClient } from "../providers/anthropic-client.js";
 
-const TRIAGE_MODEL = "claude-haiku-4-5-20251001";
+const USE_BEDROCK = process.env.CLAUDE_CODE_USE_BEDROCK === "1";
+// Bedrock requires the us. cross-region prefix and the -v1:0 suffix.
+const TRIAGE_MODEL = USE_BEDROCK
+  ? "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+  : "claude-haiku-4-5-20251001";
 
 const VALID_CATEGORIES = new Set([
   "security", "api", "database", "migrations", "performance",

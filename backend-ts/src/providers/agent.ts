@@ -37,6 +37,7 @@ export async function analyzeWithAgentSDK(
       systemPrompt: systemPrompt(),
       model: MODEL,
       maxTurns: 25,
+      maxThinkingTokens: 0,
       permissionMode: "bypassPermissions",
       settingSources: [],
       env: agentEnv(),

@@ -26,19 +26,24 @@ export async function shallowClone(
 
   const cloneURL = `https://x-access-token:${token}@github.com/${owner}/${repo}.git`;
 
+  const cloneStart = Date.now();
   try {
     await execFileAsync("git", [
       "clone", "--depth=1", "--no-tags", "--single-branch", cloneURL, dir,
     ], { timeout: 60_000 });
+    console.log(`[gitclone] git clone --depth=1 ${owner}/${repo} done in ${Date.now() - cloneStart}ms`);
   } catch (err) {
     await cleanup();
     const msg = String(err).replace(token, "<token>");
+    console.error(`[gitclone] clone failed for ${owner}/${repo}: ${msg}`);
     throw new Error(`git clone failed: ${msg}`);
   }
 
   // Best-effort: checkout the exact SHA (handles fork PRs where HEAD may differ)
+  const checkoutStart = Date.now();
   await execFileAsync("git", ["-C", dir, "checkout", "--detach", headSHA], { timeout: 10_000 })
-    .catch(() => { /* non-fatal */ });
+    .then(() => console.log(`[gitclone] checkout ${headSHA.slice(0, 8)} done in ${Date.now() - checkoutStart}ms`))
+    .catch((err) => console.warn(`[gitclone] checkout ${headSHA.slice(0, 8)} failed (non-fatal): ${err}`));
 
   return { dir, cleanup };
 }

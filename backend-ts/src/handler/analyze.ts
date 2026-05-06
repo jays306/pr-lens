@@ -44,14 +44,19 @@ export function makeAnalyzeHandler(cache: Cache, defaultToken: string) {
       const start = Date.now();
       console.log(`[analyze] start ${ref.owner}/${ref.repo} #${ref.number}`);
 
-      // Fetch diff, PR info, files, and comments concurrently
+      // Fetch diff, PR info, and comments concurrently
+      const ghFetchStart = Date.now();
+      console.log(`[analyze] fetching diff + PR info + comments from GitHub…`);
       const [diffResult, prInfoResult, commentsResult] = await Promise.allSettled([
         ghClient.fetchDiff(ref),
         ghClient.fetchPRInfo(ref),
         ghClient.fetchReviewComments(ref),
       ]);
+      console.log(`[analyze] GitHub fetch done in ${Date.now() - ghFetchStart}ms ` +
+        `(diff=${diffResult.status}, info=${prInfoResult.status}, comments=${commentsResult.status})`);
 
       if (diffResult.status === "rejected") {
+        console.error(`[analyze] fatal: fetchDiff failed: ${diffResult.reason}`);
         await emit({ type: "error", data: { message: `Failed to fetch diff: ${diffResult.reason}` } });
         return;
       }
@@ -61,8 +66,12 @@ export function makeAnalyzeHandler(cache: Cache, defaultToken: string) {
       const existingComments: ExistingComment[] =
         commentsResult.status === "fulfilled" ? commentsResult.value : [];
 
+      console.log(`[analyze] diff=${diff.length} chars, head=${prInfo?.head.sha?.slice(0, 8) ?? "?"}, ` +
+        `existingComments=${existingComments.length}`);
+
       // Emit existing comments before AI results
       if (existingComments.length > 0) {
+        console.log(`[analyze] emitting ${existingComments.length} existing comments`);
         await emit({
           type: "comments",
           data: {
@@ -83,6 +92,7 @@ export function makeAnalyzeHandler(cache: Cache, defaultToken: string) {
       const cached = cache.get(key);
       if (cached) {
         cache.logStats(key, true);
+        console.log(`[analyze] replaying ${cached.length} cached events`);
         await cache.replay(cached, emit);
         await emit({ type: "done", data: {} });
         console.log(`[analyze] done (cache hit) total=${Date.now() - start}ms`);
@@ -97,6 +107,7 @@ export function makeAnalyzeHandler(cache: Cache, defaultToken: string) {
       if (CLONE_REPOS && prInfo) {
         try {
           const t = Date.now();
+          console.log(`[analyze] shallow cloning ${ref.owner}/${ref.repo}@${prInfo.head.sha.slice(0, 8)}…`);
           const result = await shallowClone(token, ref.owner, ref.repo, prInfo.head.sha);
           cloneDir = result.dir;
           cleanup = result.cleanup;
@@ -104,6 +115,10 @@ export function makeAnalyzeHandler(cache: Cache, defaultToken: string) {
         } catch (err) {
           console.warn(`[analyze] shallow clone failed (non-fatal): ${err}`);
         }
+      } else if (!CLONE_REPOS) {
+        console.log(`[analyze] CLONE_REPOS disabled — agents will run without repo context`);
+      } else {
+        console.log(`[analyze] no PR info — skipping clone`);
       }
 
       // If clone failed or disabled, use a temp dir that just has a placeholder
@@ -124,9 +139,15 @@ export function makeAnalyzeHandler(cache: Cache, defaultToken: string) {
           await emit(enriched);
         };
 
+        const filesFetchStart = Date.now();
+        console.log(`[analyze] fetching PR files list…`);
         const prFilesResult = await ghClient.fetchPRFiles(ref).catch(() => []);
+        console.log(`[analyze] PR files fetch done in ${Date.now() - filesFetchStart}ms ` +
+          `(${prFilesResult.length} files)`);
 
+        const aiStart = Date.now();
         if (HAS_AI_BACKEND && prFilesResult.length > 0) {
+          console.log(`[analyze] starting pipeline (triage + specialists) for ${prFilesResult.length} files`);
           await runPipeline(
             ANTHROPIC_API_KEY,
             diff,
@@ -136,14 +157,22 @@ export function makeAnalyzeHandler(cache: Cache, defaultToken: string) {
             collectingEmit,
           );
         } else {
+          console.log(`[analyze] starting single-agent fallback ` +
+            `(HAS_AI_BACKEND=${HAS_AI_BACKEND}, files=${prFilesResult.length})`);
           await analyzeWithAgentSDK(diff, cwd, existingComments, collectingEmit);
         }
+        console.log(`[analyze] AI phase done in ${Date.now() - aiStart}ms ` +
+          `(${collected.length} events emitted)`);
 
         cache.set(key, collected);
+        console.log(`[analyze] cached ${collected.length} events under key=${key.slice(0, 20)}…`);
         await emit({ type: "done", data: {} });
         console.log(`[analyze] done total=${Date.now() - start}ms`);
       } finally {
-        if (cleanup) await cleanup().catch(() => {});
+        if (cleanup) {
+          console.log(`[analyze] cleaning up clone dir ${cloneDir}`);
+          await cleanup().catch(() => {});
+        }
       }
     });
   };

@@ -13,17 +13,23 @@ const VALID_CATEGORIES = new Set([
 ]);
 
 export async function triage(apiKey: string, files: PRFile[]): Promise<TriageResult> {
-  if (files.length === 0) return {};
+  if (files.length === 0) {
+    console.log("[triage] skipped: 0 files");
+    return {};
+  }
 
   void apiKey; // kept for signature compatibility; client is built from env
   const client = makeAnthropicClient();
 
+  const t = Date.now();
+  console.log(`[triage] calling ${TRIAGE_MODEL} for ${files.length} files`);
   const msg = await client.messages.create({
     model: TRIAGE_MODEL,
     max_tokens: 1024,
     system: triageSystemPrompt(),
     messages: [{ role: "user", content: buildTriagePrompt(files) }],
   });
+  console.log(`[triage] model responded in ${Date.now() - t}ms`);
 
   if (!msg.content || msg.content.length === 0) {
     console.error("[triage] unexpected response shape:", JSON.stringify(msg).slice(0, 500));

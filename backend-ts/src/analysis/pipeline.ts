@@ -31,6 +31,7 @@ async function runSummaryCall(
   }
   prompt += `\n# Diff (first 2000 lines)\n\n\`\`\`diff\n${condensedDiff}\n\`\`\`\n`;
 
+  console.log(`[summary] calling ${MODEL} (streaming, prompt=${prompt.length} chars)`);
   const stream = await client.messages.create({
     model: MODEL,
     max_tokens: 4096,
@@ -57,6 +58,10 @@ async function runSummaryCall(
       }
     }
   }
+  console.log(`[summary] collected ${events.length} events ` +
+    `(risk=${events.filter(e => e.type === "risk").length}, ` +
+    `summary=${events.filter(e => e.type === "summary").length}, ` +
+    `systems=${events.filter(e => e.type === "systems").length})`);
   return events;
 }
 
@@ -79,6 +84,7 @@ async function runRecommendationCall(
 {"type":"recommendation","data":{"action":"approve|request_changes|needs_review","reason":"<markdown: 2-3 sentences>"}}
 Then emit: {"type":"done","data":{}}`;
 
+  console.log(`[recommendation] calling ${MODEL} (prompt=${prompt.length} chars)`);
   const msg = await client.messages.create({
     model: MODEL,
     max_tokens: 512,
@@ -96,6 +102,8 @@ Then emit: {"type":"done","data":{}}`;
       } catch { /* ignore */ }
     }
   }
+  const action = events[0]?.data?.action ?? "(none)";
+  console.log(`[recommendation] action=${action} (${events.length} events)`);
   return events;
 }
 
@@ -109,17 +117,27 @@ export async function runPipeline(
   existingComments: ExistingComment[],
   emit: Emit,
 ): Promise<void> {
+  const pipelineStart = Date.now();
+  console.log(`[pipeline] start (${prFiles.length} files, diff=${diff.length} chars, cwd=${cloneDir})`);
+
   if (!aboveThreshold(prFiles, diff)) {
-    // Small PR: run single agent session
+    console.log(`[pipeline] below threshold — running single-agent fallback`);
     await analyzeWithAgentSDK(diff, cloneDir, existingComments, emit);
+    console.log(`[pipeline] fallback done in ${Date.now() - pipelineStart}ms`);
     return;
   }
 
   // Stage 1: triage
+  const triageStart = Date.now();
+  console.log(`[pipeline] triage start (Haiku classification)…`);
   let triageResult: TriageResult;
   try {
     triageResult = await triage(apiKey, prFiles);
-    console.log(`[pipeline] triage: ${Object.keys(triageResult).length} categories`);
+    const catSummary = Object.entries(triageResult)
+      .map(([c, fs]) => `${c}=${fs.length}`)
+      .join(", ");
+    console.log(`[pipeline] triage done in ${Date.now() - triageStart}ms: ` +
+      `${Object.keys(triageResult).length} categories (${catSummary})`);
   } catch (err) {
     console.error(`[pipeline] triage failed, using fallback: ${err}`);
     await analyzeWithAgentSDK(diff, cloneDir, existingComments, emit);
@@ -127,6 +145,7 @@ export async function runPipeline(
   }
 
   if (Object.keys(triageResult).length === 0) {
+    console.log(`[pipeline] triage returned 0 categories — running fallback`);
     await analyzeWithAgentSDK(diff, cloneDir, existingComments, emit);
     return;
   }
@@ -137,9 +156,12 @@ export async function runPipeline(
   const summaryStart = Date.now();
   const specialistStart = Date.now();
 
+  console.log(`[pipeline] launching summary call + ${Object.keys(triageResult).length} specialists in parallel`);
+
   const summaryPromise = runSummaryCall(apiKey, triageResult, first2000Lines(diff))
     .then(async (events) => {
-      console.log(`[pipeline] summary done in ${Date.now() - summaryStart}ms`);
+      console.log(`[pipeline] summary done in ${Date.now() - summaryStart}ms ` +
+        `(${events.length} events)`);
       for (const ev of events) await emit(ev);
     })
     .catch((err) => { console.error("[pipeline] summary error:", err); });
@@ -149,13 +171,18 @@ export async function runPipeline(
 
   const specialistPromises = Object.entries(triageResult).map(([cat, files]) => {
     const t = Date.now();
+    console.log(`[pipeline] specialist ${cat} start (${files.length} files: ${files.slice(0, 3).join(", ")}${files.length > 3 ? "…" : ""})`);
     return runSpecialist(cat, files, diff, cloneDir, existingComments)
       .then(async (events) => {
-        console.log(`[pipeline] specialist ${cat} done in ${Date.now() - t}ms (${files.length} files)`);
+        console.log(`[pipeline] specialist ${cat} done in ${Date.now() - t}ms ` +
+          `(${files.length} files, ${events.length} events)`);
         for (const ev of events) {
           if (ev.type !== "category") continue;
           const id = ev.data.id as string;
-          if (id && seenCategories.has(id)) continue;
+          if (id && seenCategories.has(id)) {
+            console.log(`[pipeline] specialist ${cat}: skipping duplicate category ${id}`);
+            continue;
+          }
           if (id) seenCategories.add(id);
           allCategoryEvents.push(ev);
           await emit(ev);
@@ -166,10 +193,13 @@ export async function runPipeline(
 
   // Wait for summary + all specialists to complete (events already emitted).
   await Promise.all([summaryPromise, ...specialistPromises]);
-  console.log(`[pipeline] all specialists done in ${Date.now() - specialistStart}ms`);
+  console.log(`[pipeline] all specialists done in ${Date.now() - specialistStart}ms ` +
+    `(${allCategoryEvents.length} unique categories emitted)`);
 
   // Recommendation (after all categories are known).
   if (allCategoryEvents.length > 0) {
+    const recStart = Date.now();
+    console.log(`[pipeline] recommendation start (${allCategoryEvents.length} categories)`);
     // Sort by risk so the recommendation call sees highest-risk categories first.
     const ranked = [...allCategoryEvents].sort((a, b) => {
       const ra = RISK_RANK[a.data.riskLevel as string] ?? 3;
@@ -178,6 +208,11 @@ export async function runPipeline(
     });
     const recEvents = await runRecommendationCall(apiKey, ranked)
       .catch((err) => { console.error("[pipeline] recommendation error:", err); return [] as StreamEvent[]; });
+    console.log(`[pipeline] recommendation done in ${Date.now() - recStart}ms (${recEvents.length} events)`);
     for (const ev of recEvents) await emit(ev);
+  } else {
+    console.log(`[pipeline] skipping recommendation — no categories emitted`);
   }
+
+  console.log(`[pipeline] complete in ${Date.now() - pipelineStart}ms`);
 }

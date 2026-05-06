@@ -32,13 +32,19 @@ export async function handleReview(c: Context, defaultToken: string): Promise<Re
     return c.json({ error: String(err) }, 400);
   }
 
+  const t = Date.now();
+  const commentCount = body.comments?.length ?? 0;
+  console.log(`[review] start ${ref.owner}/${ref.repo} #${ref.number} ` +
+    `event=${body.event} inline=${commentCount}`);
+
   const ghClient = new GitHubClient(token);
   try {
     await ghClient.postReview(ref, body.event, body.body ?? "", body.comments ?? []);
   } catch (err) {
-    console.error("[review] error:", err);
+    console.error(`[review] error: ${err}`);
     return c.json({ error: `failed to post review: ${err}` }, 502);
   }
 
+  console.log(`[review] posted in ${Date.now() - t}ms`);
   return c.json({ ok: true });
 }

@@ -95,9 +95,22 @@ async function runAgentQuery(
   cloneDir: string,
   maxTurns: number,
   emit: Emit,
+  label: string = "agent",
 ): Promise<void> {
+  const t = Date.now();
   const buf = { value: "" };
   let sawPartial = false;
+  let toolUses = 0;
+  let assistantTurns = 0;
+  let emittedCount = 0;
+
+  // Wrap emit to count how many events this run produced.
+  const countingEmit: Emit = async (ev) => {
+    emittedCount++;
+    await emit(ev);
+  };
+
+  console.log(`[${label}] query start (model=${MODEL}, maxTurns=${maxTurns}, cwd=${cloneDir}, prompt=${prompt.length} chars)`);
 
   const stream = query({
     prompt,
@@ -120,18 +133,31 @@ async function runAgentQuery(
     const delta = extractPartialText(msg);
     if (delta !== null) {
       sawPartial = true;
-      parseAndEmit(delta, buf, emit);
+      parseAndEmit(delta, buf, countingEmit);
       continue;
     }
 
-    // Fallback: if the backend didn't emit partials, parse completed turns
-    if (!sawPartial && (msg as { type?: string }).type === "assistant") {
-      const content = (msg as { message?: { content?: Array<{ type: string; text?: string }> } })
+    const msgType = (msg as { type?: string }).type;
+
+    // Count tool-use blocks and assistant turns for visibility into how much
+    // the agent explored the repo.
+    if (msgType === "assistant") {
+      assistantTurns++;
+      const content = (msg as { message?: { content?: Array<{ type: string; text?: string; name?: string }> } })
         .message?.content;
       if (content) {
         for (const block of content) {
-          if (block.type === "text" && block.text) {
-            parseAndEmit(block.text, buf, emit);
+          if (block.type === "tool_use") {
+            toolUses++;
+            console.log(`[${label}] tool_use: ${block.name ?? "?"}`);
+          }
+        }
+        if (!sawPartial) {
+          // Fallback: parse completed turns if partials weren't emitted
+          for (const block of content) {
+            if (block.type === "text" && block.text) {
+              parseAndEmit(block.text, buf, countingEmit);
+            }
           }
         }
       }
@@ -140,7 +166,10 @@ async function runAgentQuery(
 
   // Final flush: parseAndEmit handles any complete objects remaining in buf.
   // Anything left in buf.value after this is truly malformed/incomplete.
-  parseAndEmit("", buf, emit);
+  parseAndEmit("", buf, countingEmit);
+
+  console.log(`[${label}] query done in ${Date.now() - t}ms ` +
+    `(turns=${assistantTurns}, tool_uses=${toolUses}, events=${emittedCount}, partial=${sawPartial})`);
 }
 
 export async function analyzeWithAgentSDK(
@@ -155,12 +184,13 @@ export async function analyzeWithAgentSDK(
     cloneDir,
     DEFAULT_MAX_TURNS,
     emit,
+    "agent-main",
   );
 }
 
 /** Specialist variant: filtered diff + specialist system prompt. */
 export async function analyzeSpecialistWithAgentSDK(
-  _categoryID: string,
+  categoryID: string,
   filteredDiff: string,
   cloneDir: string,
   existingComments: ExistingComment[],
@@ -173,5 +203,6 @@ export async function analyzeSpecialistWithAgentSDK(
     cloneDir,
     SPECIALIST_MAX_TURNS,
     emit,
+    `agent-${categoryID}`,
   );
 }

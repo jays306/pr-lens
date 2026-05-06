@@ -21,32 +21,44 @@ export class GitHubClient {
   }
 
   async fetchDiff(ref: PRRef): Promise<string> {
+    const t = Date.now();
     const url = `https://api.github.com/repos/${ref.owner}/${ref.repo}/pulls/${ref.number}`;
     const res = await this.req(url, "application/vnd.github.v3.diff");
     if (!res.ok) {
       const body = await res.text();
       throw new Error(`GitHub API ${res.status}: ${body.trim()}`);
     }
-    return res.text();
+    const diff = await res.text();
+    console.log(`[github] fetchDiff ${ref.owner}/${ref.repo}#${ref.number} ${Date.now() - t}ms (${diff.length} chars)`);
+    return diff;
   }
 
   async fetchPRInfo(ref: PRRef): Promise<PRInfo> {
+    const t = Date.now();
     const url = `https://api.github.com/repos/${ref.owner}/${ref.repo}/pulls/${ref.number}`;
     const res = await this.req(url, "application/vnd.github+json");
     if (!res.ok) throw new Error(`GitHub API ${res.status}`);
-    return res.json() as Promise<PRInfo>;
+    const info = (await res.json()) as PRInfo;
+    console.log(`[github] fetchPRInfo ${ref.owner}/${ref.repo}#${ref.number} ${Date.now() - t}ms ` +
+      `(head=${info.head?.sha?.slice(0, 8)})`);
+    return info;
   }
 
   async fetchPRFiles(ref: PRRef): Promise<PRFile[]> {
+    const t = Date.now();
     const all: PRFile[] = [];
+    let pages = 0;
     for (let page = 1; ; page++) {
       const url = `https://api.github.com/repos/${ref.owner}/${ref.repo}/pulls/${ref.number}/files?per_page=100&page=${page}`;
       const res = await this.req(url, "application/vnd.github+json");
       if (!res.ok) throw new Error(`GitHub API ${res.status}`);
       const batch: PRFile[] = await res.json();
+      pages++;
       all.push(...batch);
       if (batch.length < 100) break;
     }
+    console.log(`[github] fetchPRFiles ${ref.owner}/${ref.repo}#${ref.number} ${Date.now() - t}ms ` +
+      `(${all.length} files, ${pages} pages)`);
     return all;
   }
 
@@ -81,11 +93,14 @@ export class GitHubClient {
   }
 
   async fetchReviewComments(ref: PRRef): Promise<ExistingComment[]> {
+    const t = Date.now();
     const [inline, reviews, issueComments] = await Promise.all([
       this.fetchInlineReviewComments(ref),
       this.fetchReviewBodies(ref),
       this.fetchIssueComments(ref),
     ]);
+    console.log(`[github] fetchReviewComments ${ref.owner}/${ref.repo}#${ref.number} ${Date.now() - t}ms ` +
+      `(inline=${inline.length}, reviews=${reviews.length}, issue=${issueComments.length})`);
     return [...inline, ...reviews, ...issueComments];
   }
 
@@ -205,6 +220,8 @@ export class GitHubClient {
     body: string,
     comments: Array<{ path: string; line: number; body: string }>,
   ): Promise<void> {
+    const t = Date.now();
+    const validComments = comments.filter((c) => c.path && c.body);
     const url = `https://api.github.com/repos/${ref.owner}/${ref.repo}/pulls/${ref.number}/reviews`;
     const res = await fetch(url, {
       method: "POST",
@@ -216,14 +233,15 @@ export class GitHubClient {
       },
       body: JSON.stringify({
         body, event,
-        comments: comments
-          .filter((c) => c.path && c.body)
-          .map((c) => ({ path: c.path, line: c.line, body: c.body, side: "RIGHT" })),
+        comments: validComments.map((c) => ({ path: c.path, line: c.line, body: c.body, side: "RIGHT" })),
       }),
     });
     if (!res.ok) {
       const text = await res.text();
+      console.error(`[github] postReview ${ref.owner}/${ref.repo}#${ref.number} FAILED ${res.status}: ${text.trim()}`);
       throw new Error(`GitHub API ${res.status}: ${text.trim()}`);
     }
+    console.log(`[github] postReview ${ref.owner}/${ref.repo}#${ref.number} ${Date.now() - t}ms ` +
+      `(event=${event}, inline=${validComments.length})`);
   }
 }

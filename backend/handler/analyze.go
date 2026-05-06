@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/pr-lens/backend/analysis"
 	"github.com/pr-lens/backend/cache"
 	"github.com/pr-lens/backend/github"
+	"github.com/pr-lens/backend/gitclone"
 )
 
 type analyzeRequest struct {
@@ -142,25 +144,47 @@ func Analyze(githubTokenDefault string, analyzer analysis.Analyzer, store *cache
 		}
 		fr := <-filesCh
 
-		// Resolve cross-references: find files imported by the diff that we
-		// haven't fetched yet, then fetch those from the head SHA so the AI
-		// sees the full context of referenced types, interfaces, and helpers.
-		if len(fr.treePaths) > 0 && dr.diff != "" && fr.info != nil {
-			alreadyFetched := make(map[string]bool, len(fr.contents))
-			for _, fc := range fr.contents {
-				alreadyFetched[fc.Path] = true
+		cloned := false
+		if os.Getenv("CLONE_REPOS") == "true" && fr.info != nil {
+			// Shallow-clone the PR head to give the AI the full codebase as context.
+			t := time.Now()
+			cloneResult, err := gitclone.ShallowClone(r.Context(), token, ref.Owner, ref.Repo, fr.info.Head.SHA)
+			if err != nil {
+				log.Printf("[analyze] shallow clone failed (non-fatal): %v", err)
+			} else {
+				defer cloneResult.Cleanup()
+				contents, err := gitclone.ReadAllFiles(cloneResult.Dir, 400_000)
+				if err != nil {
+					log.Printf("[analyze] ReadAllFiles failed (non-fatal): %v", err)
+				} else {
+					fr.contents = contents
+					cloned = true
+					log.Printf("[analyze] shallow clone done in %s (%d files, total context)", time.Since(t).Round(time.Millisecond), len(contents))
+				}
 			}
-			var allFilenames []string
-			for _, f := range fr.prFiles {
-				allFilenames = append(allFilenames, f.Filename)
-			}
-			xrefPaths := analysis.ResolveXRefs(dr.diff, allFilenames, fr.treePaths, alreadyFetched)
-			if len(xrefPaths) > 0 {
-				t := time.Now()
-				log.Printf("[analyze] fetching %d cross-referenced files", len(xrefPaths))
-				xrefContents := ghClient.FetchFileContents(r.Context(), ref, fr.info.Head.SHA, xrefPaths)
-				fr.contents = append(fr.contents, xrefContents...)
-				log.Printf("[analyze] xref fetch done in %s (%d files fetched)", time.Since(t).Round(time.Millisecond), len(xrefContents))
+		}
+
+		if !cloned {
+			// Resolve cross-references: find files imported by the diff that we
+			// haven't fetched yet, then fetch those from the head SHA so the AI
+			// sees the full context of referenced types, interfaces, and helpers.
+			if len(fr.treePaths) > 0 && dr.diff != "" && fr.info != nil {
+				alreadyFetched := make(map[string]bool, len(fr.contents))
+				for _, fc := range fr.contents {
+					alreadyFetched[fc.Path] = true
+				}
+				var allFilenames []string
+				for _, f := range fr.prFiles {
+					allFilenames = append(allFilenames, f.Filename)
+				}
+				xrefPaths := analysis.ResolveXRefs(dr.diff, allFilenames, fr.treePaths, alreadyFetched)
+				if len(xrefPaths) > 0 {
+					t := time.Now()
+					log.Printf("[analyze] fetching %d cross-referenced files", len(xrefPaths))
+					xrefContents := ghClient.FetchFileContents(r.Context(), ref, fr.info.Head.SHA, xrefPaths)
+					fr.contents = append(fr.contents, xrefContents...)
+					log.Printf("[analyze] xref fetch done in %s (%d files fetched)", time.Since(t).Round(time.Millisecond), len(xrefContents))
+				}
 			}
 		}
 

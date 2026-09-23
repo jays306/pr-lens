@@ -7,7 +7,7 @@ import (
 )
 
 // RunSpecialist runs a focused analysis for a single category using the given Analyzer.
-func RunSpecialist(ctx context.Context, a Analyzer, categoryID string, files []string, diff string, fileContents []FileContent, existingComments []ExistingComment) ([]StreamEvent, error) {
+func RunSpecialist(ctx context.Context, a Analyzer, categoryID string, files []string, diff string, fileContents []FileContent, existingComments []ExistingComment, pr *PRInfo) ([]StreamEvent, error) {
 	filteredDiff := FilterDiffByFiles(diff, files)
 	if strings.TrimSpace(filteredDiff) == "" {
 		return []StreamEvent{{
@@ -40,7 +40,7 @@ func RunSpecialist(ctx context.Context, a Analyzer, categoryID string, files []s
 		}
 	}
 
-	events, err := callAndCollect(ctx, a, SpecialistSystemPrompt(categoryID), UserPrompt(filteredDiff, filteredContents, filteredComments), func(ev StreamEvent) bool {
+	events, err := callAndCollect(ctx, a, SpecialistSystemPrompt(categoryID), UserPrompt(filteredDiff, filteredContents, filteredComments, pr), func(ev StreamEvent) bool {
 		return ev.Type == "category"
 	})
 	log.Printf("[specialist] %q collected %d events (err=%v)", categoryID, len(events), err)

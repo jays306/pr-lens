@@ -16,7 +16,9 @@ type PRFile struct {
 
 // PRInfo holds metadata about the pull request.
 type PRInfo struct {
-	Base struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
+	Base  struct {
 		SHA string `json:"sha"`
 		Ref string `json:"ref"`
 	} `json:"base"`
@@ -30,6 +32,7 @@ type PRInfo struct {
 type FileContent struct {
 	Path    string
 	Content string
+	Ref     string // "base" (before this PR), "head" (PR branch), or "dependency" (installed module)
 }
 
 // ExistingComment is feedback already posted on the PR. Anchor describes how
@@ -41,8 +44,8 @@ type ExistingComment struct {
 	OriginalLine int    `json:"originalLine,omitempty"`
 	Author       string `json:"author"`
 	Body         string `json:"body"`
-	Anchor       string `json:"anchor"`            // inline, file, or pr
-	Source       string `json:"source"`            // review_comment, review, or issue_comment
+	Anchor       string `json:"anchor"`             // inline, file, or pr
+	Source       string `json:"source"`             // review_comment, review, or issue_comment
 	Outdated     bool   `json:"outdated,omitempty"` // inline comment whose line no longer exists in current diff
 	Resolved     bool   `json:"resolved,omitempty"` // true when the review thread this comment belongs to is resolved
 }

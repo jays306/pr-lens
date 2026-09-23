@@ -6,6 +6,7 @@ extension/node_modules/
 extension/dist/
 backend/*.exe
 backend/pr-lens
+backend/bin/
 
 # Environment & secrets
 .env

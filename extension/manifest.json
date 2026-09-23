@@ -5,16 +5,12 @@
   "description": "AI-native PR review overlay. System-level reasoning for every pull request.",
   "permissions": ["storage"],
   "host_permissions": [
-    "https://github.com/*",
-    "https://gitlab.com/*",
-    "https://bitbucket.org/*"
+    "https://github.com/*"
   ],
   "content_scripts": [
     {
       "matches": [
-        "https://github.com/*/pull/*",
-        "https://gitlab.com/*/merge_requests/*",
-        "https://bitbucket.org/*/pull-requests/*"
+        "https://github.com/*/pull/*"
       ],
       "js": ["dist/content.js"],
       "run_at": "document_idle"
@@ -37,7 +33,7 @@
   "web_accessible_resources": [
     {
       "resources": ["dist/*", "public/*"],
-      "matches": ["<all_urls>"]
+      "matches": ["https://github.com/*"]
     }
   ]
 }

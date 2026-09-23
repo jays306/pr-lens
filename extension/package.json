@@ -4,13 +4,16 @@
   "private": true,
   "scripts": {
     "build": "bun run build.ts",
-    "dev": "NODE_ENV=development bun --watch build.ts"
+    "dev": "NODE_ENV=development bun --watch build.ts",
+    "test": "bun test"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.268",
+    "@types/dompurify": "^3.2.0",
     "typescript": "^5.4.5"
   },
   "dependencies": {
+    "dompurify": "^3.2.6",
     "highlight.js": "^11.11.1",
     "marked": "^17.0.4"
   }

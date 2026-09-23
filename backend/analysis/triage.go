@@ -15,10 +15,19 @@ const triageModel = "claude-haiku-4-5-20251001"
 // TriageResult maps category ID to the list of filenames assigned to it.
 type TriageResult map[string][]string
 
+var knownTriageCategories = map[string]bool{
+	"security": true, "api": true, "database": true, "migrations": true,
+	"performance": true, "logic": true, "refactor": true, "tests": true,
+	"dependencies": true, "config": true, "infra": true, "docs": true,
+}
+
 // Triage classifies changed files into categories using a fast Haiku call.
 func Triage(ctx context.Context, apiKey string, files []PRFile) (TriageResult, error) {
 	if len(files) == 0 {
 		return TriageResult{}, nil
+	}
+	if strings.TrimSpace(apiKey) == "" {
+		return HeuristicTriage(files), nil
 	}
 
 	client := anthropic.NewClient(option.WithAPIKey(apiKey))
@@ -87,10 +96,62 @@ func parseTriageResponse(raw string) (TriageResult, error) {
 		raw = strings.TrimSpace(strings.Join(inner, "\n"))
 	}
 
-	var result TriageResult
-	if err := json.Unmarshal([]byte(raw), &result); err != nil {
+	var parsed TriageResult
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
 		return nil, fmt.Errorf("triage: parse failed: %w", err)
 	}
 
+	result := make(TriageResult, len(parsed))
+	for cat, names := range parsed {
+		if !knownTriageCategories[cat] {
+			continue
+		}
+		result[cat] = names
+	}
 	return result, nil
+}
+
+// HeuristicTriage assigns files to categories from path patterns when a model
+// triage call is unavailable (e.g. Bedrock-only deployments).
+func HeuristicTriage(files []PRFile) TriageResult {
+	out := make(TriageResult)
+	assign := func(cat, name string) {
+		out[cat] = append(out[cat], name)
+	}
+	for _, f := range files {
+		n := strings.ToLower(f.Filename)
+		switch {
+		case strings.Contains(n, "migrat"):
+			assign("migrations", f.Filename)
+		case strings.HasSuffix(n, "_test.go"), strings.Contains(n, "/test/"), strings.Contains(n, "/tests/"),
+			strings.HasSuffix(n, ".test.ts"), strings.HasSuffix(n, ".test.tsx"),
+			strings.HasSuffix(n, ".spec.ts"), strings.HasSuffix(n, ".spec.tsx"):
+			assign("tests", f.Filename)
+		case strings.HasSuffix(n, "go.mod"), strings.HasSuffix(n, "go.sum"),
+			strings.HasSuffix(n, "package.json"), strings.HasSuffix(n, "package-lock.json"),
+			strings.HasSuffix(n, "yarn.lock"), strings.HasSuffix(n, "pnpm-lock.yaml"),
+			strings.HasSuffix(n, "gemfile"), strings.HasSuffix(n, "gemfile.lock"),
+			strings.HasSuffix(n, "cargo.toml"), strings.HasSuffix(n, "cargo.lock"),
+			strings.HasSuffix(n, "poetry.lock"), strings.HasSuffix(n, "requirements.txt"):
+			assign("dependencies", f.Filename)
+		case strings.Contains(n, ".github/"), strings.Contains(n, "dockerfile"),
+			strings.Contains(n, "helm/"), strings.HasSuffix(n, ".tf"),
+			strings.Contains(n, "kubernetes"), strings.Contains(n, "/k8s/"),
+			strings.Contains(n, "cloudbuild"), strings.Contains(n, "terraform"):
+			assign("infra", f.Filename)
+		case strings.Contains(n, "auth"), strings.Contains(n, "security"), strings.Contains(n, "secret"):
+			assign("security", f.Filename)
+		case strings.Contains(n, "/api/"), strings.Contains(n, "handler"), strings.Contains(n, "route"):
+			assign("api", f.Filename)
+		case strings.Contains(n, ".sql"), strings.Contains(n, "schema"), strings.Contains(n, "/repo"):
+			assign("database", f.Filename)
+		case strings.HasSuffix(n, ".md"), strings.Contains(n, "readme"):
+			assign("docs", f.Filename)
+		case strings.Contains(n, ".env"), strings.Contains(n, "config"), strings.HasSuffix(n, ".toml"):
+			assign("config", f.Filename)
+		default:
+			assign("logic", f.Filename)
+		}
+	}
+	return out
 }

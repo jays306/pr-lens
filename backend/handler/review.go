@@ -9,21 +9,23 @@ import (
 )
 
 type reviewRequest struct {
-	URL      string                  `json:"url"`
-	Event    string                  `json:"event"`
-	Body     string                  `json:"body"`
-	Comments []github.ReviewComment  `json:"comments"`
+	URL      string                 `json:"url"`
+	Event    string                 `json:"event"`
+	Body     string                 `json:"body"`
+	Comments []github.ReviewComment `json:"comments"`
 }
 
 // Review returns an http.HandlerFunc that posts a pull request review to GitHub.
-func Review(githubTokenDefault string) http.HandlerFunc {
+// The server GITHUB_TOKEN is never used here — a client-supplied PAT is required
+// so a shared backend cannot approve PRs as the bot identity.
+func Review() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
-		token, err := ResolveGitHubToken(r, githubTokenDefault)
+		token, err := ResolveGitHubToken(r, "", false)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusUnauthorized)
 			return
@@ -31,7 +33,7 @@ func Review(githubTokenDefault string) http.HandlerFunc {
 		ghClient := github.NewClient(token)
 
 		var req reviewRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil || req.URL == "" {
 			http.Error(w, `invalid request body: expected {"url":"...","event":"..."}`, http.StatusBadRequest)
 			return
 		}

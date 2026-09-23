@@ -4,11 +4,9 @@ const DEFAULT_BACKEND_URL = "http://localhost:8080";
 
 function detectPRUrl(): string | null {
   const url = window.location.href;
-
-  if (/github\.com\/.+\/pull\/\d+/.test(url)) return url.split("?")[0];
-  if (/gitlab\.com\/.+\/-\/merge_requests\/\d+/.test(url)) return url.split("?")[0];
-  if (/bitbucket\.org\/.+\/pull-requests\/\d+/.test(url)) return url.split("?")[0];
-
+  if (/^https:\/\/(www\.)?github\.com\/[^/]+\/[^/]+\/pull\/\d+/.test(url)) {
+    return url.split("?")[0];
+  }
   return null;
 }
 
@@ -20,7 +18,14 @@ function init(backendUrl: string, githubToken: string): void {
   setGithubToken(githubToken);
 
   const prUrl = detectPRUrl();
-  if (!prUrl) return;
+  if (!prUrl) {
+    if (overlay) {
+      overlay.destroy();
+      overlay = null;
+      currentUrl = "";
+    }
+    return;
+  }
 
   if (prUrl === currentUrl && overlay) return;
 
@@ -33,33 +38,32 @@ function init(backendUrl: string, githubToken: string): void {
   overlay = new JustPROverlay(prUrl);
 }
 
-// Load backend URL from storage then boot, re-init on storage changes
+function bootFromStorage(): void {
+  chrome.storage.local.get(["backendUrl", "githubToken"], (result) => {
+    init(result["backendUrl"] || DEFAULT_BACKEND_URL, result["githubToken"] || "");
+  });
+}
+
 chrome.storage.local.get(["backendUrl", "githubToken"], (result) => {
-  const url: string = result["backendUrl"] || DEFAULT_BACKEND_URL;
-  const token: string = result["githubToken"] || "";
-  init(url, token);
+  init(result["backendUrl"] || DEFAULT_BACKEND_URL, result["githubToken"] || "");
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
   if (changes["backendUrl"]) {
-    const url: string = changes["backendUrl"].newValue || DEFAULT_BACKEND_URL;
-    setBackendUrl(url);
+    setBackendUrl(changes["backendUrl"].newValue || DEFAULT_BACKEND_URL);
   }
   if (changes["githubToken"]) {
     setGithubToken(changes["githubToken"].newValue || "");
   }
 });
 
-// Handle SPA navigation (GitHub uses pushState heavily)
 let lastHref = window.location.href;
-const observer = new MutationObserver(() => {
-  if (window.location.href !== lastHref) {
-    lastHref = window.location.href;
-    chrome.storage.local.get(["backendUrl", "githubToken"], (result) => {
-      init(result["backendUrl"] || DEFAULT_BACKEND_URL, result["githubToken"] || "");
-    });
-  }
-});
+const checkNav = (): void => {
+  if (window.location.href === lastHref) return;
+  lastHref = window.location.href;
+  bootFromStorage();
+};
 
-observer.observe(document.body, { childList: true, subtree: true });
+window.addEventListener("popstate", checkNav);
+setInterval(checkNav, 400);

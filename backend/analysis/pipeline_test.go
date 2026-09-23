@@ -49,3 +49,28 @@ func TestFirst2000Lines_Long(t *testing.T) {
 		t.Error("expected truncation marker in long output")
 	}
 }
+
+func TestRecommendationPrompt_OmitsSettledIntentQuestions(t *testing.T) {
+	events := []StreamEvent{{
+		Type: "category",
+		Data: map[string]any{
+			"id":        "logic",
+			"riskLevel": "medium",
+			"summary":   "Year regex widened; tests updated. ErrConflict still returns 500.",
+			"reviewQuestions": []any{
+				map[string]any{"text": "The year regex now matches 2015 — intended?"},
+				map[string]any{"text": "Should ErrConflict also return 422?"},
+			},
+		},
+	}}
+	got := recommendationPrompt(events)
+	if strings.Contains(got, "intended?") {
+		t.Fatalf("settled intent question reached the recommendation prompt:\n%s", got)
+	}
+	if !strings.Contains(got, "Should ErrConflict also return 422?") {
+		t.Fatalf("real mismatch was dropped:\n%s", got)
+	}
+	if !strings.Contains(got, "test-updated") {
+		t.Fatal("recommendation prompt should say test-updated changes are settled")
+	}
+}

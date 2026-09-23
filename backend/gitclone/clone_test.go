@@ -143,6 +143,21 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
+func TestAuthEnv_TokenOnlyInEnv(t *testing.T) {
+	extra, cleanup, err := AuthEnv("ghp_secret_token", "acme")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(cleanup)
+	joined := strings.Join(extra, "\n")
+	if !strings.Contains(joined, "github.com/acme") {
+		t.Fatalf("GOPRIVATE missing: %s", joined)
+	}
+	if !strings.Contains(joined, "GIT_ASKPASS_PASSWORD=ghp_secret_token") {
+		t.Fatal("token must be in GIT_ASKPASS_PASSWORD")
+	}
+}
+
 func fileContentPaths(fcs []analysis.FileContent) []string {
 	out := make([]string, len(fcs))
 	for i, fc := range fcs {

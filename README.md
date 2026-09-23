@@ -18,9 +18,9 @@ PR Lens bridges AI velocity with human reasoning.
 
 ## How It Works
 
-1. **Detection** — The extension detects when you're on a GitHub PR page and activates automatically.
+1. **Detection** — The extension detects when you're on a GitHub pull request page and activates automatically.
 2. **Overlay** — An analysis panel appears alongside the native PR interface.
-3. **Analysis** — The UI sends the PR URL to the backend, which fetches the diff and runs AI analysis.
+3. **Analysis** — The UI sends the PR URL to the backend, which clones the PR head and runs Claude Code or Codex in that tree.
 4. **Streaming results** — Structured review streams back in real time: summary, risk score, categorized sections, and a final recommendation.
 5. **Review submission** — Approve, request changes, or comment directly from the overlay — no need to leave the page.
 
@@ -30,15 +30,14 @@ The raw diff remains fully visible. PR Lens augments it — it does not replace 
 
 ## Analysis Pipeline
 
-For non-trivial PRs (≥2 files or ≥50 diff lines), PR Lens uses a two-stage parallel pipeline:
+Reviews run in a shallow clone of the pull request head:
 
-1. **Triage** — A fast model classifies files into system concerns (uses Claude Haiku if available).
-2. **Parallel specialists** — Each concern runs concurrently against the relevant diff slice and file contents, including cross-referenced files not in the diff.
-3. **Summary + Recommendation** — A summary and final action recommendation (`approve` / `request_changes` / `needs_review`) are derived from the specialist outputs.
+1. **Fetch** — Diff, PR title/body, and existing human comments from GitHub.
+2. **Clone** — PR head at the review SHA.
+3. **Harness** — `claude -p` or `codex exec` in that directory. The agent can install dependencies and read their source before it writes a finding.
+4. **Events** — The same JSON event sequence (risk, summary, categories, recommendation) streams to the CLI and the extension.
 
-Results stream to the extension as Server-Sent Events, sorted by risk level (critical → high → medium → low).
-
-Results are cached by diff hash for 24 hours. Existing review comments are always fetched fresh and shown above the AI analysis.
+Results are cached by diff hash for 24 hours. Existing review comments are always fetched fresh and shown above the analysis.
 
 ---
 
@@ -65,12 +64,14 @@ Instead of scrolling through diffs file-by-file, PR Lens organizes changes by sy
 
 ```
 pr-lens/
-├── backend/            # Go HTTP server
-│   ├── analysis/       # Pipeline, triage, specialist, prompt logic
+├── backend/            # Go HTTP server + CLI
+│   ├── analysis/       # Prompts, diff anchors, leftover pipeline helpers
+│   ├── analyze/        # Shared fetch + stream used by HTTP and CLI
+│   ├── harness/        # Claude Code / Codex subprocess reviewer
+│   ├── cmd/pr-lens/    # Terminal review CLI
 │   ├── cache/          # In-memory diff-keyed result cache
 │   ├── github/         # GitHub API client
 │   ├── handler/        # HTTP route handlers (analyze, review, health)
-│   ├── providers/      # AI provider adapters (Claude, OpenAI-compatible)
 │   └── main.go
 ├── extension/          # Chrome extension (TypeScript + Bun)
 │   ├── src/            # Content script, overlay UI, types
@@ -88,7 +89,7 @@ pr-lens/
 - [Go 1.26+](https://go.dev/dl/)
 - [Bun](https://bun.sh/)
 - A GitHub personal access token (repo read scope)
-- An Anthropic or OpenAI API key
+- `claude` (Claude Code) or `codex` on PATH, already signed in or keyed the way that CLI expects
 
 ### Setup
 
@@ -98,7 +99,7 @@ make setup
 
 # Configure the backend
 cp backend/.env.example backend/.env
-# Edit backend/.env — fill in GITHUB_TOKEN and ANTHROPIC_API_KEY
+# Edit backend/.env — fill in GITHUB_TOKEN (and AGENT_HARNESS if not using Claude Code)
 ```
 
 ### Run
@@ -114,6 +115,36 @@ Then load the extension in Chrome:
 2. Enable **Developer mode**
 3. Click **Load unpacked** → select the `extension/` directory
 
+### CLI
+
+Review a pull request from the terminal (same `.env` and pipeline as the server):
+
+```bash
+make review URL=https://github.com/owner/repo/pull/123
+
+# shorthand
+make review URL=owner/repo#123
+
+# print events as JSON
+make review URL=owner/repo#123 FLAGS=--json
+
+# post findings + recommendation to GitHub
+make review URL=owner/repo#123 FLAGS=--post
+
+# JSON and post together; override the GitHub token for this run
+make review URL=owner/repo#123 FLAGS="--json --post --token ghp_..."
+```
+
+`FLAGS` is passed through to the CLI. Flags:
+
+| Flag | Description |
+|---|---|
+| `--json` | Print the analysis events as JSON |
+| `--post` | Post the findings and recommendation to GitHub |
+| `--token TOKEN` | GitHub PAT for this run (default: `GITHUB_TOKEN`) |
+
+The same flags work on the binary after `make cli-build`: `./backend/bin/pr-lens owner/repo#123 --json`.
+
 ---
 
 ## Configuration
@@ -122,14 +153,16 @@ All backend config is via environment variables (or `backend/.env`):
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `GITHUB_TOKEN` | Yes | — | GitHub PAT with repo read access |
-| `ANTHROPIC_API_KEY` | If using Claude | — | Anthropic API key (also used for Haiku triage in OpenAI mode) |
-| `OPENAI_API_KEY` | If using OpenAI | — | OpenAI API key |
-| `AI_PROVIDER` | No | `claude` | `claude` or `openai` |
-| `ANTHROPIC_MODEL` | No | `claude-sonnet-4-6` | Model override |
-| `ANTHROPIC_BASE_URL` | No | — | Override for proxies (e.g. LiteLLM) — switches to OpenAI-compatible mode |
+| `GITHUB_TOKEN` | For local `/analyze` only | — | Optional server PAT. `/review` never uses this; the extension must send a user PAT. |
+| `REQUIRE_CLIENT_GITHUB_TOKEN` | No | unset | When `true`, `/analyze` also requires a client PAT (recommended in deploy). |
+| `AGENT_HARNESS` | No | from `AI_PROVIDER` | `claude` or `codex`. Overrides `AI_PROVIDER` for which local binary reviews. |
+| `AI_PROVIDER` | No | `claude` | `claude`/`bedrock` → Claude Code; `openai` → Codex |
+| `CLAUDE_BIN` / `CODEX_BIN` | No | `claude` / `codex` | Path to the harness binary |
+| `ANTHROPIC_MODEL` | If using Claude Code | Claude Code default | Passed as `--model`. Bedrock IDs get a `us.` prefix. |
+| `ANTHROPIC_API_KEY` | If Claude Code needs it | — | Passed through to the `claude` process |
+| `OPENAI_API_KEY` | If Codex needs it | — | Passed through to the `codex` process |
 | `PORT` | No | `8080` | Server port |
-| `CORS_ORIGINS` | No | `*` | Allowed origins (comma-separated) |
+| `CORS_ORIGINS` | No | `https://github.com` | Allowed origins (comma-separated). Do not use `*` on a shared host. |
 
 ---
 
@@ -171,7 +204,7 @@ Submit a GitHub pull request review.
 }
 ```
 
-`event` must be one of `APPROVE`, `REQUEST_CHANGES`, or `COMMENT`.
+`event` must be one of `APPROVE`, `REQUEST_CHANGES`, or `COMMENT`. The caller must send `Authorization: Bearer <github-pat>`; the server token is not accepted.
 
 ### `GET /health`
 

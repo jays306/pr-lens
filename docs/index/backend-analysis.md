@@ -3,7 +3,8 @@ DOES: defines core interfaces (Analyzer, Caller, FullAnalyzer) and StreamEvent t
 TYPE: StreamEvent { Type string, Data map[string]any }
 INTERFACE: Analyzer { AnalyzePR(ctx, userPrompt, emit) error; Name() string }
 INTERFACE: Caller { Call(ctx, systemPrompt, userPrompt, emit) error }
-INTERFACE: FullAnalyzer { AnalyzePRFull(ctx, diff, prFiles, fileContents, existingComments, emit) error }
+INTERFACE: DirAnalyzer { AnalyzePRInDir(ctx, dir, userPrompt, emit) error }
+INTERFACE: FullAnalyzer { AnalyzePRFull(ctx, diff, prFiles, fileContents, existingComments, pr, emit) error }
 SYMBOLS: ParseStreamEvent(line string) → (StreamEvent, error)
 
 # pr.go
@@ -17,7 +18,7 @@ TYPE: ExistingComment { Path string, Line int, Author, Body string }
 # prompt.go
 DOES: returns system prompts (full, specialist, summary) and builds user prompt with diff + comments + file context
 SYMBOLS: SystemPrompt() → string, UserPrompt(diff, fileContents, existingComments) → string, SpecialistSystemPrompt(categoryID) → string, SummarySystemPrompt() → string
-CALLED BY: providers.ClaudeProvider, providers.OpenAIProvider, analysis.PipelineProvider, analysis.RunSpecialist
+CALLED BY: harness.Provider, analysis.PipelineProvider, analysis.RunSpecialist
 USE WHEN: modify prompts; categoryIDs: security, api, database, migrations, performance, logic, refactor, tests, dependencies, config, infra, docs
 
 # triage.go

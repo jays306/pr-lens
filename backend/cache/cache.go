@@ -17,7 +17,10 @@ import (
 
 // Version is embedded in every cache key. Bump this whenever the prompt or
 // output schema changes so stale entries are never replayed.
-const Version = "v3"
+const Version = "v20"
+
+// maxEntries is the maximum number of cached analyses kept in memory.
+const maxEntries = 64
 
 // entry holds the cached events and metadata for one diff.
 type entry struct {
@@ -27,17 +30,19 @@ type entry struct {
 
 // Store is a thread-safe in-memory cache of analysis results.
 type Store struct {
-	mu  sync.RWMutex
-	m   map[string]entry
-	ttl time.Duration
+	mu       sync.RWMutex
+	m        map[string]entry
+	ttl      time.Duration
+	inflight map[string]chan struct{}
 }
 
 // New returns a Store with the given TTL. Entries older than ttl are
 // considered stale and re-analyzed. Use 0 to disable expiry.
 func New(ttl time.Duration) *Store {
 	return &Store{
-		m:   make(map[string]entry),
-		ttl: ttl,
+		m:        make(map[string]entry),
+		ttl:      ttl,
+		inflight: make(map[string]chan struct{}),
 	}
 }
 
@@ -70,11 +75,47 @@ func (s *Store) Get(key string) ([]analysis.StreamEvent, bool) {
 	return e.events, true
 }
 
-// Set stores events under key.
+// Set stores events under key, evicting the oldest entry if the store is full.
 func (s *Store) Set(key string, events []analysis.StreamEvent) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.m[key]; !exists && len(s.m) >= maxEntries {
+		var oldestKey string
+		var oldest time.Time
+		first := true
+		for k, e := range s.m {
+			if first || e.createdAt.Before(oldest) {
+				oldestKey = k
+				oldest = e.createdAt
+				first = false
+			}
+		}
+		if oldestKey != "" {
+			delete(s.m, oldestKey)
+		}
+	}
 	s.m[key] = entry{events: events, createdAt: time.Now()}
+}
+
+// WaitForInflight lets a second request for the same key wait for the first
+// analysis to finish, then replay from cache. The caller that claimed the key
+// must call the returned release function.
+func (s *Store) WaitForInflight(key string) (release func(), waited bool) {
+	s.mu.Lock()
+	if ch, ok := s.inflight[key]; ok {
+		s.mu.Unlock()
+		<-ch
+		return func() {}, true
+	}
+	ch := make(chan struct{})
+	s.inflight[key] = ch
 	s.mu.Unlock()
+	return func() {
+		s.mu.Lock()
+		delete(s.inflight, key)
+		close(ch)
+		s.mu.Unlock()
+	}, false
 }
 
 // Len returns the number of entries currently held.

@@ -62,6 +62,46 @@ func TestBuildTriagePrompt_Empty(t *testing.T) {
 	}
 }
 
+func TestHeuristicTriage(t *testing.T) {
+	files := []PRFile{
+		{Filename: "go.mod"},
+		{Filename: "auth/jwt.go"},
+		{Filename: "handler/analyze.go"},
+		{Filename: "foo_test.go"},
+		{Filename: "README.md"},
+		{Filename: "pkg/worker.go"},
+	}
+	got := HeuristicTriage(files)
+	if got["dependencies"][0] != "go.mod" {
+		t.Errorf("go.mod: %v", got["dependencies"])
+	}
+	if got["security"][0] != "auth/jwt.go" {
+		t.Errorf("auth: %v", got["security"])
+	}
+	if got["api"][0] != "handler/analyze.go" {
+		t.Errorf("handler: %v", got["api"])
+	}
+	if got["tests"][0] != "foo_test.go" {
+		t.Errorf("test: %v", got["tests"])
+	}
+	if got["docs"][0] != "README.md" {
+		t.Errorf("docs: %v", got["docs"])
+	}
+	if got["logic"][0] != "pkg/worker.go" {
+		t.Errorf("logic: %v", got["logic"])
+	}
+}
+
+func TestTriage_EmptyAPIKeyUsesHeuristic(t *testing.T) {
+	got, err := Triage(t.Context(), "", []PRFile{{Filename: "go.mod"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got["dependencies"]) != 1 {
+		t.Fatalf("expected heuristic dependencies, got %v", got)
+	}
+}
+
 func TestParseTriageResponse_UnknownCategory(t *testing.T) {
 	raw := `{"security":["auth/jwt.go"],"hallucinated_category":["foo.go"]}`
 	result, err := parseTriageResponse(raw)

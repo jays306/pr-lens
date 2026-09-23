@@ -4,6 +4,7 @@ export interface ReviewQuestion {
   text: string;
   file?: string;       // file path this question is anchored to
   lineStart?: number;  // line number within that file
+  side?: "LEFT" | "RIGHT";
 }
 
 export interface PRCategory {
@@ -23,6 +24,8 @@ export interface CodeSnippet {
   before: string;       // removed lines (shown in left/red column)
   after: string;        // added lines (shown in right/green column)
   lineStart: number;
+  lineEnd?: number;
+  side?: "LEFT" | "RIGHT";
   explanation: string;  // why this change matters
   riskLevel: RiskLevel; // per-snippet criticality
 }
@@ -61,5 +64,6 @@ export type SSEEvent =
   | { type: "comments"; data: { comments: ExistingComment[] } }
   | { type: "category"; data: PRCategory }
   | { type: "recommendation"; data: { action: "approve" | "request_changes" | "needs_review"; reason: string } }
+  | { type: "warning"; data: { message: string } }
   | { type: "done"; data: Record<string, never> }
   | { type: "error"; data: { message: string } };

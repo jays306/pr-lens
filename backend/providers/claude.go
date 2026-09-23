@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -71,7 +72,7 @@ func NewBedrockProvider(apiKey, region, model string) *ClaudeProvider {
 	} else {
 		cfg, err := config.LoadDefaultConfig(context.Background(), config.WithRegion(region))
 		if err != nil {
-			panic("bedrock: failed to load AWS config: " + err.Error())
+			log.Fatalf("bedrock: failed to load AWS config: %v", err)
 		}
 		opts = []option.RequestOption{
 			option.WithAPIKey("bedrock"),

@@ -44,20 +44,25 @@ func (p *PipelineProvider) AnalyzePRFull(
 	prFiles []PRFile,
 	fileContents []FileContent,
 	existingComments []ExistingComment,
+	pr *PRInfo,
 	emit func(StreamEvent) error,
 ) error {
 	log.Printf("[pipeline] start: %d files, %d diff lines", len(prFiles), strings.Count(diff, "\n"))
 
 	if !aboveThreshold(prFiles, diff) {
 		log.Printf("[pipeline] below threshold — using fallback analyzer")
-		return p.cfg.FallbackAnalyzer.AnalyzePR(ctx, UserPrompt(diff, fileContents, existingComments), emit)
+		return p.cfg.FallbackAnalyzer.AnalyzePR(ctx, UserPrompt(diff, fileContents, existingComments, pr), emit)
 	}
 
 	triageStart := time.Now()
 	triage, err := Triage(ctx, p.cfg.APIKey, prFiles)
 	if err != nil || len(triage) == 0 {
-		log.Printf("[pipeline] triage failed (%v) — using fallback analyzer", err)
-		return p.cfg.FallbackAnalyzer.AnalyzePR(ctx, UserPrompt(diff, fileContents, existingComments), emit)
+		log.Printf("[pipeline] model triage unavailable (%v) — using filename heuristic", err)
+		triage = HeuristicTriage(prFiles)
+	}
+	if len(triage) == 0 {
+		log.Printf("[pipeline] triage empty — using fallback analyzer")
+		return p.cfg.FallbackAnalyzer.AnalyzePR(ctx, UserPrompt(diff, fileContents, existingComments, pr), emit)
 	}
 	log.Printf("[pipeline] triage done in %s: %d categories", time.Since(triageStart).Round(time.Millisecond), len(triage))
 	for cat, files := range triage {
@@ -76,25 +81,27 @@ func (p *PipelineProvider) AnalyzePRFull(
 	parallelStart := time.Now()
 	go func() {
 		t := time.Now()
-		events, err := runSummaryCall(ctx, p.cfg.Caller, triage, first2000Lines(diff))
+		events, err := runSummaryCall(ctx, p.cfg.Caller, triage, first2000Lines(diff), pr)
 		log.Printf("[pipeline] summary call done in %s", time.Since(t).Round(time.Millisecond))
 		ch <- result{"summary", events, err}
 	}()
 	for catID, files := range triage {
 		go func(cat string, catFiles []string) {
 			t := time.Now()
-			events, err := RunSpecialist(ctx, p.cfg.Caller, cat, catFiles, diff, fileContents, existingComments)
+			events, err := RunSpecialist(ctx, p.cfg.Caller, cat, catFiles, diff, fileContents, existingComments, pr)
 			log.Printf("[pipeline] specialist %q done in %s", cat, time.Since(t).Round(time.Millisecond))
 			ch <- result{cat, events, err}
 		}(catID, files)
 	}
 
 	var categoryEvents []StreamEvent
+	var failed []string
 	emitted := make(map[string]bool)
 	for range numWorkers {
 		r := <-ch
 		if r.err != nil {
 			log.Printf("[pipeline] worker %q error: %v", r.name, r.err)
+			failed = append(failed, r.name)
 			continue
 		}
 		for _, ev := range r.events {
@@ -111,11 +118,19 @@ func (p *PipelineProvider) AnalyzePRFull(
 				if id != "" {
 					emitted[id] = true
 				}
-				categoryEvents = append(categoryEvents, ev)
+				categoryEvents = append(categoryEvents, SanitizeCategory(ev))
 			}
 		}
 	}
 	log.Printf("[pipeline] parallel workers done in %s", time.Since(parallelStart).Round(time.Millisecond))
+	if len(failed) > 0 {
+		_ = emit(StreamEvent{Type: "warning", Data: map[string]any{
+			"message": fmt.Sprintf("Some analysis workers failed: %s", strings.Join(failed, ", ")),
+		}})
+	}
+	if len(categoryEvents) == 0 && len(failed) > 0 {
+		return fmt.Errorf("all specialist calls failed: %s", strings.Join(failed, ", "))
+	}
 
 	// Sort categories by risk level before emitting so the frontend always
 	// receives them highest-risk first, regardless of goroutine completion order.
@@ -181,8 +196,9 @@ func callAndCollect(ctx context.Context, a Analyzer, systemPrompt, userPrompt st
 	return events, err
 }
 
-func runSummaryCall(ctx context.Context, a Analyzer, triage TriageResult, condensedDiff string) ([]StreamEvent, error) {
+func runSummaryCall(ctx context.Context, a Analyzer, triage TriageResult, condensedDiff string, pr *PRInfo) ([]StreamEvent, error) {
 	var b strings.Builder
+	writeAuthorIntent(&b, pr)
 	b.WriteString("# Triage classification\n\n")
 	for cat, files := range triage {
 		fmt.Fprintf(&b, "- **%s**: %s\n", cat, strings.Join(files, ", "))
@@ -197,21 +213,37 @@ func runSummaryCall(ctx context.Context, a Analyzer, triage TriageResult, conden
 }
 
 func runRecommendationCall(ctx context.Context, a Analyzer, categoryEvents []StreamEvent) ([]StreamEvent, error) {
-	var b strings.Builder
-	b.WriteString("Based on the following category analysis, provide a final recommendation.\n\n")
-	for _, ev := range categoryEvents {
-		if id, ok := ev.Data["id"].(string); ok {
-			summary, _ := ev.Data["summary"].(string)
-			riskLevel, _ := ev.Data["riskLevel"].(string)
-			fmt.Fprintf(&b, "## %s (risk: %s)\n%s\n\n", id, riskLevel, summary)
-		}
-	}
-
-	sysPrompt := `You are PR-LENS. Based on the category analysis provided, emit exactly one JSON line:
-{"type":"recommendation","data":{"action":"approve|request_changes|needs_review","reason":"<markdown: 2-3 sentences>"}}
-Then emit: {"type":"done","data":{}}`
-
-	return callAndCollect(ctx, a, sysPrompt, b.String(), func(ev StreamEvent) bool {
+	return callAndCollect(ctx, a, RecommendationSystemPrompt(), recommendationPrompt(categoryEvents), func(ev StreamEvent) bool {
 		return ev.Type == "recommendation"
 	})
+}
+
+func recommendationPrompt(categoryEvents []StreamEvent) string {
+	var b strings.Builder
+	b.WriteString("Recommend from these findings only. Ignore speculative vendor claims.\n")
+	b.WriteString("A behavior change already described as test-updated, or as matching an existing helper, is settled. Do not ask the author to confirm it. Recommend on a PR-body vs code mismatch, or a missing test for the behavior the PR claims to add.\n\n")
+	for _, ev := range categoryEvents {
+		id, ok := ev.Data["id"].(string)
+		if !ok {
+			continue
+		}
+		summary, _ := ev.Data["summary"].(string)
+		riskLevel, _ := ev.Data["riskLevel"].(string)
+		fmt.Fprintf(&b, "## %s (risk: %s)\n%s\n", id, riskLevel, summary)
+		if qs, ok := ev.Data["reviewQuestions"].([]any); ok {
+			for _, q := range qs {
+				m, ok := q.(map[string]any)
+				if !ok {
+					continue
+				}
+				text, _ := m["text"].(string)
+				if text == "" || fillerQuestion(text) {
+					continue
+				}
+				fmt.Fprintf(&b, "- %s\n", text)
+			}
+		}
+		b.WriteByte('\n')
+	}
+	return b.String()
 }

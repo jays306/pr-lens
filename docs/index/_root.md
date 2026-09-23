@@ -1,5 +1,6 @@
 TASK → FILES TO LOAD
 PR analysis pipeline, triage, specialist agents → backend-analysis.md
+Claude Code / Codex review harness → backend-harness.md
 HTTP handlers, routing, server config → backend-handlers.md
 AI providers (Claude, OpenAI), streaming → backend-providers.md
 GitHub API, diff fetching, review posting → backend-github.md
@@ -8,6 +9,7 @@ Browser extension UI, overlay, content script → extension.md
 
 DOMAIN → INDEX → SOURCE PATHS
 backend-analysis → docs/index/backend-analysis.md → backend/analysis/
+backend-harness → docs/index/backend-harness.md → backend/harness/
 backend-handlers → docs/index/backend-handlers.md → backend/handler/, backend/main.go
 backend-providers → docs/index/backend-providers.md → backend/providers/
 backend-github → docs/index/backend-github.md → backend/github/

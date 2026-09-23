@@ -1,6 +1,6 @@
 BUN := $(shell command -v bun 2>/dev/null || echo ~/.bun/bin/bun)
 
-.PHONY: help backend extension dev clean
+.PHONY: help backend extension dev clean cli review
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -11,10 +11,16 @@ backend-deps: ## Download Go dependencies
 	cd backend && go mod tidy
 
 backend-build: ## Build the Go backend binary
-	cd backend && go build -o bin/pr-lens-backend ./...
+	cd backend && go build -o bin/pr-lens-backend .
 
 backend-run: ## Run the backend (loads .env)
-	cd backend && go run main.go
+	cd backend && go run .
+
+cli-build: ## Build the pr-lens CLI
+	cd backend && go build -o bin/pr-lens ./cmd/pr-lens
+
+review: ## Review a PR: make review URL=https://github.com/owner/repo/pull/123
+	cd backend && go run ./cmd/pr-lens $(URL) $(FLAGS)
 
 backend-test: ## Run backend tests
 	cd backend && go test ./...

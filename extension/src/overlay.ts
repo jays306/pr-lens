@@ -1,6 +1,6 @@
 import type { SSEEvent, PRCategory, RiskLevel, CodeSnippet, ExistingComment } from "./types";
 import { overlayCSS } from "./__generated_css";
-import { marked } from "marked";
+import { escapeHtml, isRiskLevel, md, normalizeReviewQuestions } from "./sanitize";
 import hljs from "highlight.js/lib/core";
 import typescript from "highlight.js/lib/languages/typescript";
 import javascript from "highlight.js/lib/languages/javascript";
@@ -99,6 +99,8 @@ export class JustPROverlay {
 
   private isOpen = false;
   private isAnalyzing = false;
+  private analysisGen = 0;
+  private abort: AbortController | null = null;
   private prUrl: string;
 
   private state: AnalysisState = {
@@ -129,7 +131,7 @@ export class JustPROverlay {
     this.host = document.createElement("div");
     this.host.id = "pr-lens-host";
     this.host.style.cssText = "all:initial;position:fixed;top:0;left:0;z-index:2147483647;pointer-events:none;";
-    this.shadow = this.host.attachShadow({ mode: "open" });
+    this.shadow = this.host.attachShadow({ mode: "closed" });
 
     // Inject our stylesheet into the shadow root
     this.injectStyles();
@@ -213,8 +215,7 @@ export class JustPROverlay {
     } catch (err) {
       const errEl = document.createElement("div");
       errEl.className = "jp-error";
-      errEl.innerHTML = `<div class="jp-error-label">Render Error</div>${err instanceof Error ? err.message : String(err)}`;
-      this.screenEl.appendChild(errEl);
+      this.showError(err instanceof Error ? err.message : String(err), "Render Error");
     }
   }
 
@@ -224,7 +225,7 @@ export class JustPROverlay {
     el.innerHTML = `
       <div class="jp-idle-badge">AI-Native Review</div>
       <div class="jp-idle-heading">Understand before<br>you read.</div>
-      <div class="jp-idle-url">${this.prUrl}</div>
+      <div class="jp-idle-url">${escapeHtml(this.prUrl)}</div>
       <button class="jp-analyze-btn">Analyze Pull Request</button>
     `;
     el.querySelector(".jp-analyze-btn")!.addEventListener("click", () => this.startAnalysis());
@@ -298,53 +299,29 @@ export class JustPROverlay {
     const el = document.createElement("div");
     el.className = "jp-overview";
 
-    // Risk section
-    const riskSection = document.createElement("div");
-    riskSection.className = "jp-section";
-    riskSection.innerHTML = `
-      <div class="jp-section-label">Risk Assessment</div>
+    const hero = document.createElement("div");
+    hero.className = "jp-section jp-section--hero";
+    hero.innerHTML = `
       <div class="jp-risk-hero">
-        <div class="jp-risk-score" data-level="${s.riskLevel}">${s.riskScore}</div>
+        <div class="jp-risk-score" data-level="${escapeHtml(s.riskLevel)}">${escapeHtml(String(s.riskScore))}</div>
         <div class="jp-risk-aside">
-          <div class="jp-risk-badge" data-level="${s.riskLevel}">
+          <div class="jp-risk-badge" data-level="${escapeHtml(s.riskLevel)}">
             <span class="jp-risk-badge-dot"></span>
-            <span>${s.riskLabel || "Analyzing"}</span>
+            <span>${escapeHtml(s.riskLevel)}</span>
           </div>
-          <div class="jp-risk-subtext">out of 100</div>
+          <div class="jp-risk-subtext">${escapeHtml(s.riskLabel || "Analyzing")}</div>
         </div>
       </div>
       <div class="jp-risk-track">
-        <div class="jp-risk-fill" data-level="${s.riskLevel}" style="width:0%"></div>
+        <div class="jp-risk-fill" data-level="${escapeHtml(s.riskLevel)}" style="width:0%"></div>
       </div>
+      <div class="jp-summary-text jp-md">${md(s.summary)}</div>
     `;
-    el.appendChild(riskSection);
-
-    // Animate risk bar
+    el.appendChild(hero);
     requestAnimationFrame(() => {
-      const fill = riskSection.querySelector<HTMLElement>(".jp-risk-fill");
+      const fill = hero.querySelector<HTMLElement>(".jp-risk-fill");
       if (fill) fill.style.width = `${s.riskScore}%`;
     });
-
-    // Summary section
-    const summarySection = document.createElement("div");
-    summarySection.className = "jp-section";
-    summarySection.innerHTML = `
-      <div class="jp-section-label">Summary</div>
-      <div class="jp-summary-text jp-md">${md(s.summary)}<span class="jp-cursor jp-done"></span></div>
-    `;
-    el.appendChild(summarySection);
-
-    // Affected systems
-    if (s.affected.length > 0) {
-      const sysSection = document.createElement("div");
-      sysSection.className = "jp-section";
-      const chips = s.affected.map(a => `<span class="jp-chip">${a}</span>`).join("");
-      sysSection.innerHTML = `
-        <div class="jp-section-label">Affected Systems</div>
-        <div class="jp-chips">${chips}</div>
-      `;
-      el.appendChild(sysSection);
-    }
 
     const prComments = this.getPRDiscussionComments();
     if (prComments.length > 0) {
@@ -361,9 +338,9 @@ export class JustPROverlay {
       const items = s.categories.map((cat, i) => `
         <div class="jp-order-item" data-idx="${i}">
           <span class="jp-order-num">${String(i + 1).padStart(2, "0")}</span>
-          <span class="jp-order-icon">${cat.icon}</span>
-          <span class="jp-order-label">${cat.label}</span>
-          <span class="jp-order-risk" data-level="${cat.riskLevel}">${cat.riskLevel}</span>
+          <span class="jp-order-icon">${escapeHtml(cat.icon)}</span>
+          <span class="jp-order-label">${escapeHtml(cat.label)}</span>
+          <span class="jp-order-risk" data-level="${escapeHtml(cat.riskLevel)}">${escapeHtml(cat.riskLevel)}</span>
         </div>
       `).join("");
       orderSection.innerHTML = `
@@ -414,14 +391,14 @@ export class JustPROverlay {
     header.className = "jp-step-header";
     header.innerHTML = `
       <div class="jp-step-header-left">
-        <span class="jp-step-rail-dot" data-level="${cat.riskLevel}"></span>
-        <span class="jp-step-icon">${cat.icon}</span>
+        <span class="jp-step-rail-dot" data-level="${escapeHtml(cat.riskLevel)}"></span>
+        <span class="jp-step-icon">${escapeHtml(cat.icon)}</span>
         <span class="jp-step-title">${escapeHtml(cat.label)}</span>
-        <span class="jp-step-risk-pill" data-level="${cat.riskLevel}">${cat.riskLevel}</span>
+        <span class="jp-step-risk-pill" data-level="${escapeHtml(cat.riskLevel)}">${escapeHtml(cat.riskLevel)}</span>
       </div>
       <div class="jp-step-header-nav">
-        <button class="jp-step-nav-btn" data-action="prev">← Back</button>
-        <button class="jp-step-nav-btn" data-action="next"${isLast ? " disabled" : ""}>Next →</button>
+        <button class="jp-step-nav-btn" data-action="prev">Back</button>
+        <button class="jp-step-nav-btn" data-action="next"${isLast ? " disabled" : ""}>Next</button>
         <button class="jp-step-nav-btn jp-step-nav-btn--finish">Finish</button>
       </div>
     `;
@@ -550,14 +527,6 @@ export class JustPROverlay {
 
         fileGroup.appendChild(rangeList);
 
-        const fileAnchorComments = this.getFileAnchorComments(fullPath);
-        if (fileAnchorComments.length > 0) {
-          const fileCommentsEl = this.buildExistingCommentsBlock("", fileAnchorComments);
-          fileCommentsEl.classList.add("jp-file-tree-comments");
-          fileCommentsEl.style.marginLeft = `${depth * 12}px`;
-          fileGroup.appendChild(fileCommentsEl);
-        }
-
         treeRoot.appendChild(fileGroup);
       });
     };
@@ -567,10 +536,18 @@ export class JustPROverlay {
     leftCol.appendChild(treeRoot);
 
     // ── Section summary strip ─────────────────────────────────────
-    const summaryStrip = document.createElement("div");
-    summaryStrip.className = "jp-step-summary";
-    summaryStrip.innerHTML = `<div class="jp-step-summary-text jp-md">${md(cat.summary)}</div>`;
-    el.appendChild(summaryStrip);
+    if (cat.summary?.trim()) {
+      const summaryStrip = document.createElement("div");
+      summaryStrip.className = "jp-step-summary jp-step-summary--collapsed";
+      summaryStrip.innerHTML = `
+        <button type="button" class="jp-step-summary-toggle">About this section</button>
+        <div class="jp-step-summary-text jp-md">${md(cat.summary)}</div>
+      `;
+      summaryStrip.querySelector(".jp-step-summary-toggle")!.addEventListener("click", () => {
+        summaryStrip.classList.toggle("jp-step-summary--collapsed");
+      });
+      el.appendChild(summaryStrip);
+    }
 
     cols.appendChild(leftCol);
 
@@ -604,7 +581,6 @@ export class JustPROverlay {
         <div class="jp-diff-card-meta">
           <span class="jp-diff-card-file">${escapeHtml(s.file)} · L${s.lineStart}</span>
         </div>
-        <span class="jp-step-risk-pill" data-level="${s.riskLevel ?? cat.riskLevel}">${s.riskLevel ?? cat.riskLevel}</span>
       `;
       diffFocus.appendChild(cardHeader);
 
@@ -672,8 +648,10 @@ export class JustPROverlay {
         s.after ? s.after.split("\n").length : 0,
       );
       const inlineComments = this.getInlineCommentsForSnippet(s.file, s.lineStart, snippetLineEnd);
-      if (inlineComments.length > 0) {
-        diffFocus.appendChild(this.buildExistingCommentsBlock("", inlineComments));
+      const fileComments = this.getFileAnchorComments(s.file);
+      const existing = [...inlineComments, ...fileComments];
+      if (existing.length > 0) {
+        diffFocus.appendChild(this.buildExistingCommentsBlock("", existing));
       }
 
       // Per-snippet note
@@ -709,72 +687,37 @@ export class JustPROverlay {
         const feedbackCard = document.createElement("div");
         feedbackCard.className = "jp-feedback-card";
 
-        const criticalCount = (cat.riskLevel === "high" || cat.riskLevel === "critical")
-          ? Math.min(1, snippetQuestions.length)
-          : 0;
-        const feedbackHeader = document.createElement("div");
-        feedbackHeader.className = "jp-feedback-header";
-        feedbackHeader.innerHTML = `
-          <div class="jp-feedback-title">Feedback</div>
-          <div class="jp-feedback-meta">${snippetQuestions.length} total · ${criticalCount} critical</div>
-        `;
-        feedbackCard.appendChild(feedbackHeader);
-
         const list = document.createElement("div");
         list.className = "jp-feedback-list";
-        snippetQuestions.forEach((q, qi) => {
-          const isCritical = qi === 0 && criticalCount > 0;
-          const kind = isCritical ? "Action required" : (q.text.trim().endsWith("?") ? "Question" : "Nit");
-          // Find the real question index in cat.reviewQuestions
+        snippetQuestions.forEach((q) => {
           const qIdx = cat.reviewQuestions.indexOf(q);
           const actionKey = `${catIdx}:${qIdx}`;
 
           const qCard = document.createElement("div");
-          qCard.className = "jp-finding-card" + (isCritical ? " jp-finding-card--critical" : "");
-          qCard.dataset.kind = kind.toLowerCase().replace(/\s+/g, "-");
-
-          const row = document.createElement("div");
-          row.className = "jp-finding-row";
-          const heading = document.createElement("div");
-          heading.className = "jp-finding-heading";
-          const kindEl = document.createElement("span");
-          kindEl.className = "jp-finding-kind" + (isCritical ? " jp-finding-kind--action" : "");
-          kindEl.textContent = kind;
-          heading.appendChild(kindEl);
-          if (isCritical) {
-            const blocking = document.createElement("span");
-            blocking.className = "jp-finding-badge-blocking";
-            blocking.textContent = "Blocking";
-            heading.appendChild(blocking);
-          }
+          qCard.className = "jp-finding-card";
 
           const textEl = document.createElement("p");
           textEl.className = "jp-finding-text";
           textEl.textContent = q.text;
-          row.appendChild(heading);
-          row.appendChild(textEl);
-          qCard.appendChild(row);
+          qCard.appendChild(textEl);
 
           const btnsRow = document.createElement("div");
           btnsRow.className = "jp-finding-btns";
 
-          // Add to draft: append feedback text to the snippet note (primary action)
           const addToNoteBtn = document.createElement("button");
           addToNoteBtn.className = "jp-finding-btn jp-finding-btn--note";
-          addToNoteBtn.textContent = "Add to Draft";
-          addToNoteBtn.title = "Add this finding to a draft snippet note. It will post only when you submit the review.";
+          addToNoteBtn.textContent = "Draft";
+          addToNoteBtn.title = "Add to a draft note. Posts when you submit the review.";
 
-          // Post: post as a standalone inline GitHub comment on submit
           const postBtn = document.createElement("button");
           postBtn.className = "jp-finding-btn";
-          postBtn.textContent = "Post to GitHub";
-          postBtn.title = "Queue this exact finding as a GitHub inline comment when you submit the review.";
+          postBtn.textContent = "Post";
+          postBtn.title = "Queue as a GitHub inline comment on submit.";
 
-          // Dismiss: not relevant, fade it out
           const dismissBtn = document.createElement("button");
           dismissBtn.className = "jp-finding-btn";
-          dismissBtn.textContent = "Dismiss";
-          dismissBtn.title = "Dismiss — not relevant for this review";
+          dismissBtn.textContent = "Skip";
+          dismissBtn.title = "Dismiss this finding";
 
           const applyFeedbackState = () => {
             const action = this.feedbackActions.get(actionKey);
@@ -889,10 +832,7 @@ export class JustPROverlay {
 
     const header = document.createElement("div");
     header.className = "jp-decision-header";
-    header.innerHTML = `
-      <div class="jp-decision-eyebrow">Review Complete</div>
-      <div class="jp-decision-title">Finish Review</div>
-    `;
+    header.innerHTML = `<div class="jp-decision-title">Finish Review</div>`;
     el.appendChild(header);
 
     const body = document.createElement("div");
@@ -911,7 +851,7 @@ export class JustPROverlay {
           <div class="jp-rec-label">AI recommendation</div>
           <div class="jp-rec-icon">${icons[s.recommendation.action]}</div>
           <div class="jp-rec-content">
-            <div class="jp-rec-title">${titles[s.recommendation.action]}</div>
+            <div class="jp-rec-title">${escapeHtml(titles[s.recommendation.action] ?? s.recommendation.action)}</div>
             <div class="jp-rec-reason jp-md">${md(s.recommendation.reason)}</div>
           </div>
         </div>
@@ -966,9 +906,9 @@ export class JustPROverlay {
         const row = document.createElement("div");
         row.className = "jp-flag-row";
         row.innerHTML = `
-          <span class="jp-flag-icon">${cat.icon}</span>
-          <span class="jp-flag-name">${cat.label}</span>
-          <span class="jp-flag-risk" data-level="${cat.riskLevel}">${cat.riskLevel}</span>
+          <span class="jp-flag-icon">${escapeHtml(cat.icon)}</span>
+          <span class="jp-flag-name">${escapeHtml(cat.label)}</span>
+          <span class="jp-flag-risk" data-level="${escapeHtml(cat.riskLevel)}">${escapeHtml(cat.riskLevel)}</span>
         `;
         row.addEventListener("click", () => {
           this.currentStep = i + 1;
@@ -1104,7 +1044,7 @@ export class JustPROverlay {
 
     bar.innerHTML = `
       <div class="jp-progress-meta">
-        <span class="jp-progress-step-name">${stepLabel}</span>
+        <span class="jp-progress-step-name">${escapeHtml(stepLabel)}</span>
         <span class="jp-progress-counter">${this.currentStep === 0 ? "—" : `${Math.min(this.currentStep, totalSteps)} / ${totalSteps}`}</span>
       </div>
       <div class="jp-progress-steps"></div>
@@ -1456,7 +1396,7 @@ export class JustPROverlay {
 
   // Returns the number of inline comments posted
   private async submitReview(): Promise<number> {
-    interface ReviewComment { path: string; line: number; body: string; }
+    interface ReviewComment { path: string; line: number; lineEnd?: number; body: string; side?: "LEFT" | "RIGHT"; }
     const comments: ReviewComment[] = [];
 
     // 1. Notes added via "+ Note" (key = "catIdx:snippetIdx")
@@ -1466,8 +1406,15 @@ export class JustPROverlay {
       const catIdx = parseInt(parts[0], 10);
       const snippetIdx = parseInt(parts[1], 10);
       const snippet = this.state.categories[catIdx]?.snippets[snippetIdx];
-      if (!snippet?.file) return;
-      comments.push({ path: snippet.file, line: snippet.lineStart || 1, body: text });
+      if (!snippet?.file || !snippet.lineStart || snippet.lineStart <= 0) return;
+      const side = snippet.side ?? (snippet.after?.trim() ? "RIGHT" : "LEFT");
+      comments.push({
+        path: snippet.file,
+        line: snippet.lineStart,
+        lineEnd: snippet.lineEnd,
+        body: text,
+        side,
+      });
     });
 
     // 2. "Post" feedback actions (key = "catIdx:questionIdx") — post as standalone inline comments
@@ -1478,23 +1425,29 @@ export class JustPROverlay {
       const catIdx = parseInt(parts[0], 10);
       const qIdx = parseInt(parts[1], 10);
       const q = this.state.categories[catIdx]?.reviewQuestions[qIdx];
-      if (!q?.file) return;
+      if (!q?.file || !q.lineStart || q.lineStart <= 0) return;
       const body = `> ${q.text}\n\n*Posted via AI-assisted review.*`;
-      comments.push({ path: q.file, line: q.lineStart || 1, body });
+      comments.push({ path: q.file, line: q.lineStart, body, side: q.side });
     });
 
+    const validComments = comments.filter(c => c.path && c.line > 0 && c.body.trim());
     const event = this.reviewDecision ?? "COMMENT";
+    let body = "";
+    if (event === "REQUEST_CHANGES" && validComments.length === 0) {
+      body = "Changes requested via PR-LENS.";
+    }
 
     const resp = await fetch(`${BACKEND_URL}/review`, {
       method: "POST",
       headers: backendHeaders(),
-      body: JSON.stringify({ url: this.prUrl, event, body: "", comments }),
+      signal: this.abort?.signal,
+      body: JSON.stringify({ url: this.prUrl, event, body, comments: validComments }),
     });
     if (!resp.ok) {
       const msg = await resp.text().catch(() => `HTTP ${resp.status}`);
       throw new Error(msg || `HTTP ${resp.status}`);
     }
-    return comments.length;
+    return validComments.length;
   }
 
   // ── Analysis / SSE ─────────────────────────────────────────
@@ -1513,8 +1466,25 @@ export class JustPROverlay {
     this.renderScreen("idle");
   }
 
+  private showError(message: string, label = "Error"): void {
+    this.screenEl.replaceChildren();
+    const errEl = document.createElement("div");
+    errEl.className = "jp-error";
+    const labelEl = document.createElement("div");
+    labelEl.className = "jp-error-label";
+    labelEl.textContent = label;
+    const body = document.createElement("div");
+    body.textContent = message;
+    errEl.appendChild(labelEl);
+    errEl.appendChild(body);
+    this.screenEl.appendChild(errEl);
+  }
+
   async startAnalysis(): Promise<void> {
-    if (this.isAnalyzing) return;
+    this.abort?.abort();
+    this.abort = new AbortController();
+    const gen = ++this.analysisGen;
+    const signal = this.abort.signal;
     this.isAnalyzing = true;
     this.state = {
       riskScore: 0, riskLevel: "low", riskLabel: "",
@@ -1531,6 +1501,7 @@ export class JustPROverlay {
       const response = await fetch(`${BACKEND_URL}/analyze`, {
         method: "POST",
         headers: backendHeaders(),
+        signal,
         body: JSON.stringify({ url: this.prUrl }),
       });
 
@@ -1540,13 +1511,10 @@ export class JustPROverlay {
       }
       await this.consumeStream(response);
     } catch (err) {
-      this.screenEl.innerHTML = "";
-      const errEl = document.createElement("div");
-      errEl.className = "jp-error";
-      errEl.innerHTML = `<div class="jp-error-label">Error</div>${err instanceof Error ? err.message : "Failed to connect to backend"}`;
-      this.screenEl.appendChild(errEl);
+      if (signal.aborted) return;
+      this.showError(err instanceof Error ? err.message : "Failed to connect to backend");
     } finally {
-      this.isAnalyzing = false;
+      if (gen === this.analysisGen) this.isAnalyzing = false;
     }
   }
 
@@ -1577,84 +1545,97 @@ export class JustPROverlay {
         try { event = JSON.parse(raw) as SSEEvent; }
         catch { continue; }
 
-        switch (event.type) {
-          case "risk": {
-            this.state.riskScore = event.data.score;
-            this.state.riskLevel = event.data.level;
-            this.state.riskLabel = event.data.label;
-            this.updateLoadingProgress("risk", `Risk: ${event.data.label}`);
-            break;
-          }
-          case "summary": {
-            this.state.summary += event.data.text;
-            this.updateLoadingProgress("summary", "Writing summary");
-            break;
-          }
-          case "systems": {
-            this.state.affected = event.data.affected;
-            this.state.reviewOrder = event.data.reviewOrder;
-            this.updateLoadingProgress("systems", `${event.data.affected.length} systems identified: ${event.data.affected.join(", ")}`);
-            break;
-          }
-          case "comments": {
-            this.state.existingComments = event.data.comments;
-            break;
-          }
-          case "category": {
-            categoryCount++;
-            const cat = event.data as PRCategory;
-            if (!Array.isArray(cat.snippets)) cat.snippets = [];
-            if (!Array.isArray(cat.reviewQuestions)) cat.reviewQuestions = [];
-            this.state.categories.push(cat);
-            // Interpolate progress between 50% and 90% based on categories
-            const catPct = Math.min(88, 50 + categoryCount * 5);
-            const pctEl = this.screenEl.querySelector<HTMLElement>(".jp-loading-pct");
-            const phaseEl = this.screenEl.querySelector<HTMLElement>(".jp-loading-phase");
-            const fillEl = this.screenEl.querySelector<HTMLElement>(".jp-loading-fill");
-            if (pctEl) pctEl.textContent = `${catPct}%`;
-            if (phaseEl) phaseEl.textContent = `Analyzing: ${event.data.label} (${event.data.fileCount} files)`;
-            if (fillEl) fillEl.style.width = `${catPct}%`;
-            // Mark categories step as active
-            const steps = this.screenEl.querySelectorAll<HTMLElement>(".jp-loading-step");
-            steps.forEach(s => {
-              if (s.dataset.phase === "categories") s.classList.add("jp-loading-step--active");
-              else if (s.dataset.phase !== "recommendation") {
-                s.classList.remove("jp-loading-step--active");
-                s.classList.add("jp-loading-step--done");
-              }
-            });
-            break;
-          }
-          case "recommendation": {
-            this.state.recommendation = event.data;
-            this.updateLoadingProgress("recommendation", "Finalizing recommendation");
-            break;
-          }
-          case "done": {
-            const hasContent = this.state.summary || this.state.categories.length > 0;
-            if (!hasContent) {
-              this.screenEl.innerHTML = "";
-              const errEl = document.createElement("div");
-              errEl.className = "jp-error";
-              errEl.innerHTML = `<div class="jp-error-label">Error</div>Analysis returned no content. Please try again.`;
-              this.screenEl.appendChild(errEl);
+        try {
+          switch (event.type) {
+            case "risk": {
+              this.state.riskScore = typeof event.data.score === "number" ? event.data.score : 0;
+              this.state.riskLevel = isRiskLevel(event.data.level) ? event.data.level : "low";
+              this.state.riskLabel = typeof event.data.label === "string" ? event.data.label : "";
+              this.updateLoadingProgress("risk", `Risk: ${this.state.riskLabel}`);
               break;
             }
-            this.updateLoadingProgress("done", "Complete");
-            // Brief pause to show 100%, then switch to overview
-            await new Promise(r => setTimeout(r, 400));
-            this.renderScreen("overview");
-            break;
+            case "summary": {
+              if (typeof event.data.text === "string") this.state.summary += event.data.text;
+              this.updateLoadingProgress("summary", "Writing summary");
+              break;
+            }
+            case "systems": {
+              this.state.affected = Array.isArray(event.data.affected) ? event.data.affected.map(String) : [];
+              this.state.reviewOrder = Array.isArray(event.data.reviewOrder) ? event.data.reviewOrder.map(String) : [];
+              this.updateLoadingProgress("systems", `${this.state.affected.length} systems identified: ${this.state.affected.join(", ")}`);
+              break;
+            }
+            case "comments": {
+              this.state.existingComments = Array.isArray(event.data.comments) ? event.data.comments : [];
+              break;
+            }
+            case "category": {
+              categoryCount++;
+              const cat = { ...(event.data as PRCategory) };
+              if (!Array.isArray(cat.snippets)) cat.snippets = [];
+              cat.reviewQuestions = normalizeReviewQuestions(cat.reviewQuestions);
+              if (!isRiskLevel(cat.riskLevel)) cat.riskLevel = "low";
+              cat.label = typeof cat.label === "string" ? cat.label : cat.id || "Section";
+              cat.icon = typeof cat.icon === "string" ? cat.icon : "";
+              this.state.categories.push(cat);
+              const catPct = Math.min(88, 50 + categoryCount * 5);
+              const pctEl = this.screenEl.querySelector<HTMLElement>(".jp-loading-pct");
+              const phaseEl = this.screenEl.querySelector<HTMLElement>(".jp-loading-phase");
+              const fillEl = this.screenEl.querySelector<HTMLElement>(".jp-loading-fill");
+              if (pctEl) pctEl.textContent = `${catPct}%`;
+              if (phaseEl) phaseEl.textContent = `Analyzing: ${cat.label} (${cat.fileCount ?? cat.snippets.length} files)`;
+              if (fillEl) fillEl.style.width = `${catPct}%`;
+              const steps = this.screenEl.querySelectorAll<HTMLElement>(".jp-loading-step");
+              steps.forEach(s => {
+                if (s.dataset.phase === "categories") s.classList.add("jp-loading-step--active");
+                else if (s.dataset.phase !== "recommendation") {
+                  s.classList.remove("jp-loading-step--active");
+                  s.classList.add("jp-loading-step--done");
+                }
+              });
+              break;
+            }
+            case "recommendation": {
+              const action = event.data.action;
+              if (action === "approve" || action === "request_changes" || action === "needs_review") {
+                this.state.recommendation = {
+                  action,
+                  reason: typeof event.data.reason === "string" ? event.data.reason : "",
+                };
+              }
+              this.updateLoadingProgress("recommendation", "Finalizing recommendation");
+              break;
+            }
+            case "warning": {
+              break;
+            }
+            case "done": {
+              const hasContent = Boolean(this.state.summary) || this.state.categories.length > 0;
+              if (!hasContent) {
+                this.showError("Analysis returned no content. Please try again.");
+                break;
+              }
+              this.updateLoadingProgress("done", "Complete");
+              await new Promise(r => setTimeout(r, 400));
+              this.renderScreen("overview");
+              break;
+            }
+            case "error": {
+              this.showError(typeof event.data.message === "string" ? event.data.message : "Analysis failed");
+              break;
+            }
           }
-          case "error": {
-            const errEl = document.createElement("div");
-            errEl.className = "jp-error";
-            errEl.innerHTML = `<div class="jp-error-label">Error</div>${event.data.message}`;
-            this.screenEl.appendChild(errEl);
-            break;
-          }
+        } catch {
+          continue;
         }
       }
+    }
+
+    const hasContent = Boolean(this.state.summary) || this.state.categories.length > 0;
+    if (hasContent && this.screenEl.querySelector(".jp-loading")) {
+      this.renderScreen("overview");
+    } else if (!hasContent && this.screenEl.querySelector(".jp-loading")) {
+      this.showError("Analysis ended before results arrived. Please try again.");
     }
   }
 
@@ -1664,7 +1645,13 @@ export class JustPROverlay {
     const badge = this.screenEl.querySelector<HTMLElement>(".jp-risk-badge");
     if (score) { score.textContent = String(this.state.riskScore); score.dataset.level = this.state.riskLevel; }
     if (fill)  { fill.dataset.level = this.state.riskLevel; requestAnimationFrame(() => { fill.style.width = `${this.state.riskScore}%`; }); }
-    if (badge) { badge.dataset.level = this.state.riskLevel; badge.querySelector("span:last-child")!.textContent = this.state.riskLabel; }
+    if (badge) {
+      badge.dataset.level = this.state.riskLevel;
+      const label = badge.querySelector("span:last-child");
+      if (label) label.textContent = this.state.riskLevel;
+    }
+    const sub = this.screenEl.querySelector<HTMLElement>(".jp-risk-subtext");
+    if (sub) sub.textContent = this.state.riskLabel || "Analyzing";
   }
 
   // ── Toggle / Resize / Destroy ──────────────────────────────
@@ -1674,8 +1661,9 @@ export class JustPROverlay {
     this.panel.classList.toggle("jp-open", this.isOpen);
     this.toggle.classList.toggle("jp-active", this.isOpen);
     if (this.isOpen && !skipReset && !this.isAnalyzing) {
-      // Opening the extension should immediately start analysis.
-      void this.startAnalysis();
+      if (this.state.categories.length === 0 && !this.state.summary) {
+        void this.startAnalysis();
+      }
     }
   }
 
@@ -1698,17 +1686,18 @@ export class JustPROverlay {
     });
   }
 
+  /** Local testbed only: open a finished analysis without calling the backend. */
+  previewAnalysis(partial: Partial<AnalysisState>, screen: Screen = "overview"): void {
+    this.state = { ...this.state, ...partial };
+    this.currentStep = screen === "step" ? 1 : screen === "decision" ? this.state.categories.length + 1 : 0;
+    this.isOpen = true;
+    this.panel.classList.add("jp-open");
+    this.toggle.classList.add("jp-active");
+    this.renderScreen(screen);
+  }
+
   destroy(): void {
+    this.abort?.abort();
     this.host.remove();
   }
-}
-
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-
-function md(text: string): string {
-  return marked.parse(text, { async: false }) as string;
 }

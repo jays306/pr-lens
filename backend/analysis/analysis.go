@@ -27,6 +27,12 @@ type Caller interface {
 	Call(ctx context.Context, systemPrompt, userPrompt string, emit func(StreamEvent) error) error
 }
 
+// DirAnalyzer reviews from a working tree. The harness implements this so the
+// agent can install and read dependencies in the cloned PR head.
+type DirAnalyzer interface {
+	AnalyzePRInDir(ctx context.Context, dir, userPrompt string, emit func(StreamEvent) error) error
+}
+
 // FullAnalyzer is an optional interface for analyzers that need structured PR data
 // rather than a pre-built prompt string. PipelineProvider implements this.
 type FullAnalyzer interface {
@@ -36,6 +42,7 @@ type FullAnalyzer interface {
 		prFiles []PRFile,
 		fileContents []FileContent,
 		existingComments []ExistingComment,
+		pr *PRInfo,
 		emit func(StreamEvent) error,
 	) error
 }

@@ -220,32 +220,25 @@ Resources:
             - ContainerPort: 9000
               Protocol: tcp
           Environment:
-            # ── Bedrock auth (official Claude Code env vars) ──────────────
-            - Name: CLAUDE_CODE_USE_BEDROCK
-              Value: '1'
+            - Name: AI_PROVIDER
+              Value: bedrock
             - Name: AWS_REGION
               Value: us-east-1
-            # ── Model ─────────────────────────────────────────────────────
+            - Name: BEDROCK_REGION
+              Value: us-east-1
             - Name: ANTHROPIC_MODEL
               Value: anthropic.claude-opus-4-7
-            # ── Agent SDK tuning ──────────────────────────────────────────
-            - Name: AGENT_MAX_TURNS
-              Value: '40'
-            - Name: AGENT_SPECIALIST_MAX_TURNS
-              Value: '30'
-            # ── Repo cloning for full codebase context ────────────────────
             - Name: CLONE_REPOS
               Value: 'true'
-            # ── Server ────────────────────────────────────────────────────
             - Name: PORT
               Value: '9000'
             - Name: CORS_ORIGINS
-              Value: '*'
-            - Name: NODE_ENV
-              Value: production
+              Value: https://github.com
+            - Name: REQUIRE_CLIENT_GITHUB_TOKEN
+              Value: 'true'
           Secrets:
-            # BEDROCK_API_KEY stored in Secrets Manager; injected under the
-            # name the Claude Code binary expects: AWS_BEARER_TOKEN_BEDROCK.
+            # BEDROCK_API_KEY stored in Secrets Manager; also read by the Go
+            # backend as AWS_BEARER_TOKEN_BEDROCK.
             - Name: AWS_BEARER_TOKEN_BEDROCK
               ValueFrom: !Sub '${SecretArn}:BEDROCK_API_KEY::'
             # Optional: GitHub token for private repos. Extension can also

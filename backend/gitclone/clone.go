@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/pr-lens/backend/analysis"
 )
@@ -24,37 +25,141 @@ type CloneResult struct {
 	Cleanup func()
 }
 
-// ShallowClone clones owner/repo at headSHA (depth=1) to a temp dir.
-// Authentication uses the GitHub token via the HTTPS credential helper pattern.
-// The caller must invoke Cleanup() when done to remove the temp dir.
-func ShallowClone(ctx context.Context, token, owner, repo, headSHA string) (*CloneResult, error) {
+func validGitHubName(s string) bool {
+	if s == "" || s == "." || s == ".." || len(s) > 100 {
+		return false
+	}
+	for _, r := range s {
+		if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' || r == '.') {
+			return false
+		}
+	}
+	return true
+}
+
+func writeAskpass() (path string, cleanup func(), err error) {
+	f, err := os.CreateTemp("", "pr-lens-askpass-*.sh")
+	if err != nil {
+		return "", nil, err
+	}
+	script := "#!/bin/sh\ncase \"$1\" in\n*Username*|*username*) echo x-access-token ;;\n*) echo \"$GIT_ASKPASS_PASSWORD\" ;;\nesac\n"
+	if _, err := f.WriteString(script); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return "", nil, err
+	}
+	if err := f.Chmod(0o700); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return "", nil, err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(f.Name())
+		return "", nil, err
+	}
+	return f.Name(), func() { os.Remove(f.Name()) }, nil
+}
+
+func gitEnv(askpass, token string) []string {
+	return append(os.Environ(),
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_ASKPASS="+askpass,
+		"GIT_ASKPASS_PASSWORD="+token,
+		"GCM_INTERACTIVE=never",
+	)
+}
+
+// AuthEnv returns extra environment entries so a child process can fetch
+// private GitHub modules. cleanup removes the askpass helper. token is never
+// placed in argv — only GIT_ASKPASS_PASSWORD.
+func AuthEnv(token, owner string) (extra []string, cleanup func(), err error) {
+	cleanup = func() {}
+	if owner != "" && validGitHubName(owner) {
+		prefix := "github.com/" + owner
+		extra = append(extra, "GOPRIVATE="+prefix+","+prefix+"/*", "GONOSUMDB="+prefix+","+prefix+"/*")
+	}
+	if token == "" {
+		return extra, cleanup, nil
+	}
+	askpass, askpassCleanup, err := writeAskpass()
+	if err != nil {
+		return nil, nil, err
+	}
+	extra = append(extra,
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_ASKPASS="+askpass,
+		"GIT_ASKPASS_PASSWORD="+token,
+		"GCM_INTERACTIVE=never",
+	)
+	return extra, askpassCleanup, nil
+}
+
+// ShallowClone clones owner/repo and checks out headSHA (depth=1) to a temp dir.
+// Authentication uses GIT_ASKPASS so the token is not written into the remote URL.
+func ShallowClone(ctx context.Context, token, owner, repo, headSHA string, prNumber int) (*CloneResult, error) {
+	if !validGitHubName(owner) || !validGitHubName(repo) {
+		return nil, fmt.Errorf("invalid owner or repo")
+	}
+	if headSHA == "" || strings.ContainsAny(headSHA, " \n\t") {
+		return nil, fmt.Errorf("invalid head SHA")
+	}
+
 	dir, err := os.MkdirTemp("", "pr-lens-clone-*")
 	if err != nil {
 		return nil, fmt.Errorf("creating temp dir: %w", err)
 	}
 	cleanup := func() { os.RemoveAll(dir) }
 
-	cloneURL := fmt.Sprintf("https://x-access-token:%s@github.com/%s/%s.git", token, owner, repo)
+	askpass, askpassCleanup, err := writeAskpass()
+	if err != nil {
+		cleanup()
+		return nil, fmt.Errorf("creating askpass helper: %w", err)
+	}
+	defer askpassCleanup()
 
-	cmd := exec.CommandContext(ctx, "git", "clone", "--depth=1", "--no-tags", "--single-branch", cloneURL, dir)
-	// Suppress credential leakage in error output by redirecting stderr.
+	env := gitEnv(askpass, token)
+	cloneURL := fmt.Sprintf("https://github.com/%s/%s.git", owner, repo)
+
 	var errBuf strings.Builder
+	cmd := exec.CommandContext(ctx, "git", "clone", "--depth=1", "--no-tags", "--single-branch", cloneURL, dir)
+	cmd.Env = env
 	cmd.Stderr = &errBuf
-
 	if err := cmd.Run(); err != nil {
 		cleanup()
-		// Scrub the token from the error message before returning.
 		msg := strings.ReplaceAll(errBuf.String(), token, "<token>")
 		return nil, fmt.Errorf("git clone failed: %w — %s", err, strings.TrimSpace(msg))
 	}
 
-	// If headSHA doesn't match HEAD (e.g. fork PR), check out the exact SHA.
-	checkoutCmd := exec.CommandContext(ctx, "git", "-C", dir, "checkout", "--detach", headSHA)
-	checkoutCmd.Stderr = &errBuf
-	if err := checkoutCmd.Run(); err != nil {
-		// Non-fatal: the shallow clone may not have the SHA if it's from a fork;
-		// log but continue with whatever HEAD is.
-		_ = err
+	errBuf.Reset()
+	fetchSHA := exec.CommandContext(ctx, "git", "-C", dir, "fetch", "--depth=1", "origin", headSHA)
+	fetchSHA.Env = env
+	fetchSHA.Stderr = &errBuf
+	if err := fetchSHA.Run(); err != nil && prNumber > 0 {
+		errBuf.Reset()
+		fetchPR := exec.CommandContext(ctx, "git", "-C", dir, "fetch", "--depth=1", "origin", fmt.Sprintf("pull/%d/head", prNumber))
+		fetchPR.Env = env
+		fetchPR.Stderr = &errBuf
+		if err := fetchPR.Run(); err != nil {
+			cleanup()
+			msg := strings.ReplaceAll(errBuf.String(), token, "<token>")
+			return nil, fmt.Errorf("git fetch of PR head failed: %s", strings.TrimSpace(msg))
+		}
+		checkout := exec.CommandContext(ctx, "git", "-C", dir, "checkout", "--detach", "FETCH_HEAD")
+		checkout.Env = env
+		if err := checkout.Run(); err != nil {
+			cleanup()
+			return nil, fmt.Errorf("git checkout of PR head failed: %w", err)
+		}
+		return &CloneResult{Dir: dir, Cleanup: cleanup}, nil
+	}
+
+	checkout := exec.CommandContext(ctx, "git", "-C", dir, "checkout", "--detach", headSHA)
+	checkout.Env = env
+	checkout.Stderr = &errBuf
+	if err := checkout.Run(); err != nil {
+		cleanup()
+		msg := strings.ReplaceAll(errBuf.String(), token, "<token>")
+		return nil, fmt.Errorf("git checkout of %s failed: %s", headSHA, strings.TrimSpace(msg))
 	}
 
 	return &CloneResult{Dir: dir, Cleanup: cleanup}, nil
@@ -67,15 +172,13 @@ type fileEntry struct {
 
 // ReadAllFiles walks the clone dir, reads all non-binary text files up to
 // maxTotalBytes total, and returns them as []analysis.FileContent.
-// Files are sorted smallest-first so the budget is used as broadly as possible.
 func ReadAllFiles(dir string, maxTotalBytes int) ([]analysis.FileContent, error) {
 	var entries []fileEntry
 
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil // skip unreadable entries
+			return nil
 		}
-		// Skip the .git directory entirely.
 		if d.IsDir() && d.Name() == ".git" {
 			return filepath.SkipDir
 		}
@@ -93,7 +196,6 @@ func ReadAllFiles(dir string, maxTotalBytes int) ([]analysis.FileContent, error)
 		return nil, fmt.Errorf("walking clone dir: %w", err)
 	}
 
-	// Sort smallest-first to maximise file count within the budget.
 	sort.Slice(entries, func(i, j int) bool { return entries[i].size < entries[j].size })
 
 	var out []analysis.FileContent
@@ -113,13 +215,12 @@ func ReadAllFiles(dir string, maxTotalBytes int) ([]analysis.FileContent, error)
 		}
 		relPath := strings.TrimPrefix(e.path, prefix)
 		total += len(data)
-		out = append(out, analysis.FileContent{Path: relPath, Content: string(data)})
+		out = append(out, analysis.FileContent{Path: relPath, Content: string(data), Ref: "head"})
 	}
 
 	return out, nil
 }
 
-// isBinary reports whether data looks like a binary file by scanning for null bytes.
 func isBinary(data []byte) bool {
 	for _, b := range data {
 		if b == 0 {

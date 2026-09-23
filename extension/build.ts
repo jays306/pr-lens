@@ -33,6 +33,19 @@ if (!result.success) {
   process.exit(1);
 }
 
+writeFileSync(join(outdir, "testbed.html"), `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>PR-LENS testbed</title>
+  <style>html,body{margin:0;height:100%;background:#e8e4dc;}</style>
+</head>
+<body>
+  <script type="module" src="./testbed.js"></script>
+</body>
+</html>
+`);
+
 console.log("✓ Built extension to dist/");
 console.log("  → dist/content.js (CSS embedded)");
 console.log("  → dist/testbed.js + dist/testbed.html");

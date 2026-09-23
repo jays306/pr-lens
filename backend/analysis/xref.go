@@ -9,8 +9,8 @@ import (
 // importPatterns captures import paths from common languages found in diff lines.
 // Each pattern returns one submatch: the raw import path string.
 var importPatterns = []*regexp.Regexp{
-	// Go:   import "pkg/foo" or import foo "pkg/foo"
-	regexp.MustCompile(`(?m)^\+?\s*(?:\w+\s+)?"([^"]+)"`),
+	// Go:   import "pkg/foo" or import foo "pkg/foo" (not arbitrary quoted strings)
+	regexp.MustCompile(`(?m)^\+?\s*import\s+(?:\w+\s+)?"([^"]+)"`),
 	// TypeScript / JavaScript:  from './foo' or from "../bar/baz"
 	regexp.MustCompile(`(?m)from\s+['"]([^'"]+)['"]`),
 	// TypeScript / JavaScript:  require('./foo') or require("../bar")
@@ -150,12 +150,17 @@ func candidates(ref string, diffDirs map[string]bool, repoTree []string, treeSet
 	// 4. Suffix match: find any tree entry whose path ends with the ref as a
 	//    path component. This handles Go sub-package references like
 	//    "internal/config" matching "backend/internal/config/config.go".
-	if len(out) == 0 {
+	if len(out) == 0 && len(ref) >= 4 {
 		suffix := "/" + strings.TrimPrefix(ref, "/")
+		matches := 0
 		for _, entry := range repoTree {
 			if strings.HasSuffix(entry, suffix) || entry == strings.TrimPrefix(suffix, "/") {
 				if treeSet[entry] {
 					out = append(out, entry)
+					matches++
+					if matches >= 2 {
+						break
+					}
 				}
 			}
 		}

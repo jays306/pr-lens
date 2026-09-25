@@ -16,12 +16,16 @@ const triageModel = "claude-haiku-4-5-20251001"
 type TriageResult map[string][]string
 
 // Triage classifies changed files into categories using a fast Haiku call.
-func Triage(ctx context.Context, apiKey string, files []PRFile) (TriageResult, error) {
+func Triage(ctx context.Context, apiKey, baseURL string, files []PRFile) (TriageResult, error) {
 	if len(files) == 0 {
 		return TriageResult{}, nil
 	}
 
-	client := anthropic.NewClient(option.WithAPIKey(apiKey))
+	opts := []option.RequestOption{option.WithAPIKey(apiKey)}
+	if baseURL != "" {
+		opts = append(opts, option.WithBaseURL(baseURL))
+	}
+	client := anthropic.NewClient(opts...)
 
 	msg, err := client.Messages.New(ctx, anthropic.MessageNewParams{
 		Model:     anthropic.Model(triageModel),

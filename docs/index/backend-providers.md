@@ -15,5 +15,5 @@ DOES: wraps OpenAI-compatible SDK streaming into Analyzer and Caller interfaces;
 TYPE: OpenAIProvider { client openai.Client, model string }
 SYMBOLS: NewOpenAIProvider(apiKey, baseURL, model) → *OpenAIProvider, AnalyzePR(ctx, userPrompt, emit) → error, Call(ctx, systemPrompt, userPrompt, emit) → error
 CALLED BY: main.buildAnalyzer, analysis.callAndCollect
-CONFIG: OPENAI_API_KEY, ANTHROPIC_BASE_URL (openai-compat mode)
-USE WHEN: AI_PROVIDER=openai or ANTHROPIC_BASE_URL set with claude provider
+CONFIG: OPENAI_API_KEY, ANTHROPIC_BASE_URL
+USE WHEN: AI_PROVIDER=openai

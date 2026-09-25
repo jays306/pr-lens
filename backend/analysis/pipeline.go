@@ -13,6 +13,8 @@ import (
 type PipelineConfig struct {
 	// APIKey is used only for the Triage step (Haiku, non-streaming).
 	APIKey string
+	// BaseURL is the optional proxy base URL for the Triage step.
+	BaseURL string
 	// Caller is the Analyzer used for summary, specialist, and recommendation calls.
 	Caller Analyzer
 	// FallbackAnalyzer handles small PRs and triage failures.
@@ -54,7 +56,7 @@ func (p *PipelineProvider) AnalyzePRFull(
 	}
 
 	triageStart := time.Now()
-	triage, err := Triage(ctx, p.cfg.APIKey, prFiles)
+	triage, err := Triage(ctx, p.cfg.APIKey, p.cfg.BaseURL, prFiles)
 	if err != nil || len(triage) == 0 {
 		log.Printf("[pipeline] triage failed (%v) — using fallback analyzer", err)
 		return p.cfg.FallbackAnalyzer.AnalyzePR(ctx, UserPrompt(diff, fileContents, existingComments), emit)

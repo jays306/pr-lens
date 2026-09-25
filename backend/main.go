@@ -57,6 +57,7 @@ func buildAnalyzer() analysis.Analyzer {
 		p := providers.NewClaudeProvider(apiKey, baseURL, model)
 		return analysis.NewPipelineProvider(analysis.PipelineConfig{
 			APIKey:           apiKey,
+			BaseURL:          baseURL,
 			Caller:           p,
 			FallbackAnalyzer: p,
 		})

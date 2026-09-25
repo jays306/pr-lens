@@ -127,7 +127,7 @@ All backend config is via environment variables (or `backend/.env`):
 | `OPENAI_API_KEY` | If using OpenAI | — | OpenAI API key |
 | `AI_PROVIDER` | No | `claude` | `claude` or `openai` |
 | `ANTHROPIC_MODEL` | No | `claude-sonnet-4-6` | Model override |
-| `ANTHROPIC_BASE_URL` | No | — | Override for proxies (e.g. LiteLLM) — switches to OpenAI-compatible mode |
+| `ANTHROPIC_BASE_URL` | No | — | Override for proxies (e.g. Bifrost, LiteLLM) — routes Anthropic API calls through the proxy |
 | `PORT` | No | `8080` | Server port |
 | `CORS_ORIGINS` | No | `*` | Allowed origins (comma-separated) |
 

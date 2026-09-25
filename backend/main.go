@@ -52,15 +52,9 @@ func buildAnalyzer() analysis.Analyzer {
 	case "claude":
 		apiKey := requireEnv("ANTHROPIC_API_KEY")
 		if baseURL != "" {
-			log.Printf("ANTHROPIC_BASE_URL is set — using OpenAI-compatible mode against %s", baseURL)
-			p := providers.NewOpenAIProvider(apiKey, baseURL, model)
-			return analysis.NewPipelineProvider(analysis.PipelineConfig{
-				APIKey:           apiKey,
-				Caller:           p,
-				FallbackAnalyzer: p,
-			})
+			log.Printf("ANTHROPIC_BASE_URL is set — routing through proxy at %s", baseURL)
 		}
-		p := providers.NewClaudeProvider(apiKey, "", model)
+		p := providers.NewClaudeProvider(apiKey, baseURL, model)
 		return analysis.NewPipelineProvider(analysis.PipelineConfig{
 			APIKey:           apiKey,
 			Caller:           p,
